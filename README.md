@@ -4,3 +4,6 @@ With Invertible Syntax, you write a description of your language similar to pars
 
 Inspired by Haskell's [invertible-syntax](http://hackage.haskell.org/package/invertible-syntax) and [partial-isomorphisms](http://hackage.haskell.org/package/partial-isomorphisms).
 
+## Getting Started
+
+There is an overly complicated example parser in [example.scala](src/test/scala/invertible/example.scala).
