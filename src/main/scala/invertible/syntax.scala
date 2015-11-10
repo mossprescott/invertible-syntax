@@ -30,7 +30,7 @@ trait Syntax[F[_]] extends IsoFunctor[F] with ProductFunctor[F] with Alternative
   // // Alternative
   // def <|>[A](f1: F[A], f2: F[A]): F[A]
 
-  def empty[A]: F[A]
+  // def empty[A]: F[A]
 
   // Defined directly in Syntax
   def pure[A](a: A)(implicit E: Equal[A]): F[A]
@@ -44,6 +44,9 @@ trait Syntax[F[_]] extends IsoFunctor[F] with ProductFunctor[F] with Alternative
 
   /** Records the position before and after parsing some value. */
   def pos[A](p: F[A]): F[(A, Syntax.Pos)]
+
+  /** Wrap a parser with a label used in error reporting. */
+  def label[A](p: F[A], expected: => String): F[A]
 }
 object Syntax {
   import Iso._
@@ -57,9 +60,10 @@ object Syntax {
   def text[A, F[_]](s: String)(implicit S: Syntax[F]): F[Unit] =
     if (s == "") S.pure(())
     else
-      element(s).inverse <> S.tokenStr(s.length)
+      S.label(element(s).inverse <> S.tokenStr(s.length), "\"" + s + "\"")
 
-  def digit[F[_]](implicit S: Syntax[F]): F[Char] = subset[Char](_.isDigit) <> S.token
+  def digit[F[_]](implicit S: Syntax[F]): F[Char] =
+    S.label(subset[Char](_.isDigit) <> S.token, "digit")
 
   def *>[A, F[_]](f: F[Unit], g: F[A])(implicit S: Syntax[F]): F[A] = {
     // HACK:
@@ -114,12 +118,30 @@ object Syntax {
 
   type Pos = (Position, Position) // HACK: probably just need our own simple type
 
-  case class Parser[A] (p: CharSequenceReader => List[(A, CharSequenceReader)]) {
-    // TODO: actual error handling. Parse to ParseError \/ A, and record
-    // location and what parser failed in the error?
-    def parse(s: String): List[String \/ A] = {
+  final case class ParseFailure(pos: Position, expected: List[String], found: Option[String]) {
+    override def toString = "expected: " + expected.mkString(" or ") + found.fold("")("; found: '" + _ + "'") + "\n" + pos.longString
+  }
+
+  implicit val ParseFailureSemigroup = new Semigroup[ParseFailure] {
+    def append(f1: ParseFailure, f2: => ParseFailure) =
+      if (f1.pos < f2.pos) f2
+      else if (f1.pos == f2.pos) ParseFailure(f1.pos, f1.expected ++ f2.expected, f1.found)
+      else f1
+  }
+
+  // FIXME: this is almost certainly _not_ the right way to capture failures.
+  // We need to return multiple partial results from inner parsers, as well
+  // as capturing all of the potential matches for <|>, and this allows for
+  // that but probably also lots of other values that are not useful.
+  final case class Parser[A] (p: CharSequenceReader => List[ParseFailure \/ (A, CharSequenceReader)]) {
+    def parse(s: String): ParseFailure \/ A = {
       val r = new CharArrayReader(s.toCharArray)
-      for { (x, rem) <- p(r) } yield if (rem.atEnd) \/-(x) else -\/("error:\n" + rem.pos.longString)
+      val ts = p(r)
+      // println(ts.mkString("\n"))
+      ts.collect { case \/-((a, rem)) if rem.atEnd => a } match {
+        case a :: Nil => \/-(a)
+        case _ => -\/(ts.collect { case -\/(e) => e }.reduce (_ |+| _))  // HACK
+      }
     }
   }
 
@@ -127,48 +149,67 @@ object Syntax {
     def <>[A, B](iso: Iso[A, B], p: Parser[A]) =
       Parser[B](s =>
         for {
-          (x, s1) <- p.p(s)
-          y <- iso.app(x)
-        } yield (y, s1)
-      )
+          v <- p.p(s)
+        } yield v.flatMap { case (x, s1) => iso.app(x).map((_, s1)) \/> ParseFailure(s.pos, List("[iso failed]"), Some(s.first.toString)) })
 
     def <*>[A, B](fa: Parser[A], fb: => Parser[B]) =
       Parser[(A, B)](s =>
         for {
-          (a, s1) <- fa.p(s)
-          (b, s2) <- fb.p(s1)
-        } yield (a, b) -> s2)
+          v1 <- fa.p(s)
+          v2 <- v1.fold(
+            err => List(-\/(err)),
+            { case (a, s1) =>
+              fb.p(s1).map(_.map { case (b, s2) => ((a, b), s2) })
+            })
+            // fb.p(s1) match {
+            //   case Nil => println(s"expected ${fb.expected()}; found: '${s1.first}'\n${s1.pos.longString}"); Nil
+            //   case bs => bs
+            // }
+        } yield v2)
 
     def <|>[A](f1: Parser[A], f2: => Parser[A]) =
-      Parser[A](s => f1.p(s) ++ f2.p(s))
+      Parser[A](
+        r => f1.p(r) ++ f2.p(r)  // This is the important bit? Run them both and return both results/failures.
+        // FIXME: not right; commits too early. Need to return multiple good (partial) parses?
+        // r => f1.p(r).fold(_ => f2.p(r), \/.right),
+        // r =>  {
+        //   val t1 = f1.p(r)
+        //   t1.fold(
+        //     err => f2.p(r),
+        //     { case (a, s1) => \/-(a, s1) })
+        // }
+      )
 
-    def empty[A]: Parser[A] =
-      Parser(s => Nil)
+    // def empty[A]: Parser[A] =
+    //   Parser(r => Nil, () => "nothing")
 
     def pure[A](a: A)(implicit E: Equal[A]) =
-      Parser(s => (a, s) :: Nil)
+      Parser(r => List(\/-((a, r))))
 
     def token: Parser[Char] =
-      Parser { r =>
+      Parser({ r =>
         val fst = r.first
-        if (fst == CharSequenceReader.EofCh) Nil
-        else (fst, r.rest) :: Nil
-      }
+        if (fst == CharSequenceReader.EofCh) List(-\/(ParseFailure(r.pos, List("any char"), Some(r.first.toString))))
+        else List(\/-((fst, r.rest)))
+      })
 
     def tokenStr(length: Int): Parser[String] =
-      Parser { r =>
+      Parser({ r =>
         val s = r.source.subSequence(r.offset, r.offset+length).toString
-        if (s.length < length) Nil
-        else (s, r.drop(length)) :: Nil
-      }
+        if (s.length < length) List(-\/(ParseFailure(r.pos, List("any " + length + " chars"), Some(r.first.toString))))
+        else List(\/-((s, r.drop(length))))
+      })
 
     def pos[A](p: Parser[A]): Parser[(A, Pos)] =
-      Parser { r =>
+      Parser({ r =>
         val before = r.pos
-        p.p(r).map {
+        p.p(r).map(_.map {
           case (a, r1) => ((a, (before, r1.pos)), r1)
-        }
-      }
+        })
+      })
+
+    def label[A](p: Parser[A], expected: => String) =
+      Parser(r => p.p(r).map(_.leftMap(_ => ParseFailure(r.pos, List(expected), Some(r.first.toString)))))
   }
 
   final case class Printer[A](print: A => Option[Cord])
@@ -183,8 +224,8 @@ object Syntax {
     def <|>[A](f1: Printer[A], f2: => Printer[A]) =
       Printer(a => f1.print(a).orElse(f2.print(a)))
 
-    def empty[A]: Printer[A] =
-      Printer(_ => None)
+    // def empty[A]: Printer[A] =
+    //   Printer(_ => None)
 
     def pure[A](a: A)(implicit E: Equal[A]) =
       Printer(x => if (x == a) Some("") else None)
@@ -197,5 +238,7 @@ object Syntax {
 
     def pos[A](p: Printer[A]): Printer[(A, Pos)] =
       Printer { case (a, _) => p.print(a) }
+
+    def label[A](p: Printer[A], expected: => String) = p
   }
 }

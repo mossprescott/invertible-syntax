@@ -36,9 +36,9 @@ object Expr {
   case object BitAnd extends BinaryOperator("&")
   case object BitLShift extends BinaryOperator("<<")
   case object BitNot extends BinaryOperator("~")
-  case object BitOr  extends BinaryOperator("|")
+  case object BitOr extends BinaryOperator("|")
   case object BitRShift extends BinaryOperator(">>")
-  case object BitXor  extends BinaryOperator("^")
+  case object BitXor extends BinaryOperator("^")
   case object Lt extends BinaryOperator("<")
   case object Lte extends BinaryOperator("<=")
   case object Gt extends BinaryOperator(">")
@@ -109,7 +109,7 @@ object ExprSyntax {
     // re-wrapping so that the actual Pos would be available.
     def unPos(p: F[T]) = unit.inverse <> (second(ignore[Pos](null)) <> (fix.inverse <> p))
 
-    def nullP = fix <> S.pos(exprNull[T] <> text("null"))
+    def nullP  = fix <> S.pos(exprNull[T] <> text("null"))
     def trueP  = fix <> S.pos((element(true) >>> exprBool[T]) <> text("true"))
     def falseP = fix <> S.pos((element(false) >>> exprBool[T]) <> text("false"))
 
@@ -178,33 +178,32 @@ object Test extends App {
   import ExprSyntax._
 
   val examples = List(
-    "",
-    "null",
-    " null ",
-    "123",
-    " 123 ",
+    // "",
+    // "null",
+    // " null ",
+    // "123",
+    // " 123 ",
     // "1+2",
     // "1 + 2",
-    "1 + 2 + 3",
+    // "1 + 2 + 3",
     // "(1+2)+3",  // Left-recursive, so equivalent to previous
     // "1+(2+3)",  // Not left-recursive, so the parens are not removed (preserving eval. order)
     // "1 - 2",
     // "1 - 2 + 3",
     // "1 - (2 + 3)",
     // "1 * 2",
-    "(1 + 2) * 3",
+    // "(1 + 2) * 3",
     " 1+( 2*3 ) ",
     // "true",
-    "   true ",
+    // "   true ",
     // "false",
     // "1 < 2",
-    "(1 < 2) && true",  // For some reason this parses two ways, with the same result.
+    // "(1 < 2) && true",  // For some reason this parses two ways, with the same result.
     // "2 ^ 3 & 4 || 5 >> 7 <= 8 in 9",  // ~20s to parse this one! (not any more)
 
     // errors:
     "1 + )",
-
-    "")
+    "1 + (2*3 - )")
 
   def toTree(v: Cofree[Expr, Syntax.Pos]): Tree[String] = v match {
     case Cofree(pos, Expr.Null) => scalaz.Tree.leaf("null " + pos)
@@ -218,14 +217,13 @@ object Test extends App {
 
   examples.foreach { src =>
     println("\"" + src + "\"")
-    ExprParser.parse(src).map(_.fold(
-      err => (),
-      // err => println(err),
+    ExprParser.parse(src).fold(
+      err => println(err),
       expr => {
         println(toTree(expr).drawTree)
         val p = ExprPrinter.print(expr)
         println("--> " + p.map("\"" + _ + "\"").getOrElse(""))
-      }))
+      })
     println("")
   }
 }
