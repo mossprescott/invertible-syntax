@@ -170,7 +170,7 @@ object ExprSyntax {
     js
   }
 
-  val ExprParser = syntax(Syntax.ParserSyntax)
+  val ExprParser = Parser.parse(syntax(Syntax.ParserSyntax)) _
   val ExprPrinter = syntax(Syntax.PrinterSyntax)
 }
 
@@ -206,10 +206,10 @@ object Test extends App {
     "1 + (2*3 - )")
 
   def toTree(v: Cofree[Expr, Syntax.Pos]): Tree[String] = v match {
-    case Cofree(pos, Expr.Null) => scalaz.Tree.leaf("null " + pos)
-    case Cofree(pos, Expr.Bool(true)) => scalaz.Tree.leaf("true " + pos)
+    case Cofree(pos, Expr.Null)        => scalaz.Tree.leaf("null " + pos)
+    case Cofree(pos, Expr.Bool(true))  => scalaz.Tree.leaf("true " + pos)
     case Cofree(pos, Expr.Bool(false)) => scalaz.Tree.leaf("false " + pos)
-    case Cofree(pos, Expr.Num(x)) => scalaz.Tree.leaf(x + " " + pos)
+    case Cofree(pos, Expr.Num(x))      => scalaz.Tree.leaf(x + " " + pos)
     case Cofree(pos, Expr.BinOp(op, l, r)) =>
       scalaz.Tree.node(op + " " + pos,
         toTree(l) #:: toTree(r) #:: Stream.empty)
@@ -217,11 +217,11 @@ object Test extends App {
 
   examples.foreach { src =>
     println("\"" + src + "\"")
-    ExprParser.parse(src).fold(
+    ExprParser(src).fold(
       err => println(err),
       expr => {
         println(toTree(expr).drawTree)
-        val p = ExprPrinter.print(expr)
+        val p = ExprPrinter(expr)
         println("--> " + p.map("\"" + _ + "\"").getOrElse(""))
       })
     println("")
