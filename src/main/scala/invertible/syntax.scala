@@ -123,6 +123,10 @@ object Syntax {
 
   type Pos = (Position, Position) // HACK: probably just need our own simple type
 
+  implicit val PosSemigroup: Semigroup[Pos] = new Semigroup[Pos] {
+    def append(p1: Pos, p2: => Pos) = (p1._1, p2._2)
+  }
+
   final case class ParseFailure(pos: Position, expected: List[String], found: Option[String]) {
     override def toString = "expected: " + expected.mkString(" or ") + found.fold("")("; found: '" + _ + "'") + "\n" + pos.longString
   }

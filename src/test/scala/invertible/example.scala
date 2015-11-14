@@ -52,6 +52,15 @@ object Expr {
   case object Mod extends BinaryOperator("%")
   case object Mult extends BinaryOperator("*")
   case object Sub extends BinaryOperator("-")
+
+  implicit val ExprTraverse: Traverse[Expr] = new Traverse[Expr] {
+    def traverseImpl[G[_], A, B](fa: Expr[A])(f: A => G[B])(implicit G: Applicative[G]): G[Expr[B]] = fa match {
+      case `Null`          => G.point(Null)
+      case Bool(value)     => G.point(Bool(value))
+      case Num(value)      => G.point(Num(value))
+      case BinOp(op, l, r) => (f(l) |@| f(r))((l, r) => BinOp(op, l, r))
+    }
+  }
 }
 
 object ExprConstructors {
@@ -70,16 +79,35 @@ object ExprConstructors {
     { case x => Num(x) },
     { case Num(x) => x } )
 
-  // NB: not used because infix ops get special treatment below
   def exprBinOp[A] = iso[(BinaryOperator, A, A), Expr[A]](
     { case (op, l, r) => BinOp(op, l, r) },
     { case BinOp(op, l, r) => (op, l, r) })
+  // Variant with re-associated args to match chainl1's signture:
+  def exprBinOp2[A] = iso[(A, (BinaryOperator, A)), Expr[A]](
+    { case (l, (op, r)) => BinOp(op, l, r) },
+    { case BinOp(op, l, r) => (l, (op, r)) })
 }
 
 object ExprSyntax {
   import Iso._
   import Syntax._
   import ExprConstructors._
+
+  def fix[F[_], A] = Iso.total[(F[Cofree[F, A]], A), Cofree[F, A]](
+    { case (f, a) => Cofree(a, f) },
+    v => (v.tail, v.head))
+
+  def fixUp[F[_]: Traverse, A: Semigroup, B] = Iso[F[Cofree[F, A]], Cofree[F, A]](
+    f => f.foldMap(_.head.some).map(Cofree(_, f)),
+    _.tail.some)
+
+  // This is effectively the inverse of `fix <> S.pos(p)`
+  // NB: the original Pos is discarded, so it has to be synthesized
+  // when un-parsing, but of course we don't care, so just using
+  // `null` here. A cleaner approach would combine uwrapping and
+  // re-wrapping so that the actual Pos would be available.
+  def unPos[F[_]](p: F[T])(implicit S: Syntax[F]) =
+    unit.inverse <> (second(ignore[Pos](null)) <> (fix.inverse <> p))
 
   type P[F[_]] = Cofree[F, Pos]
   type T = P[Expr]
@@ -98,17 +126,6 @@ object ExprSyntax {
       fix <> S.pos(unPos(p))
     }
 
-    def fix = Iso.total[(Expr[T], Pos), T](
-      { case (js, pos) => Cofree(pos, js) },
-      v => (v.tail, v.head))
-
-    // This is effectively the inverse of `fix <> S.pos(p)`
-    // NB: the original Pos is discarded, so it has to be synthesized
-    // when un-parsing, but of course we don't care, so just using
-    // `null` here. A cleaner approach would combine uwrapping and
-    // re-wrapping so that the actual Pos would be available.
-    def unPos(p: F[T]) = unit.inverse <> (second(ignore[Pos](null)) <> (fix.inverse <> p))
-
     def nullP  = fix <> S.pos(exprNull[T] <> text("null"))
     def trueP  = fix <> S.pos((element(true) >>> exprBool[T]) <> text("true"))
     def falseP = fix <> S.pos((element(false) >>> exprBool[T]) <> text("false"))
@@ -121,33 +138,10 @@ object ExprSyntax {
     }
 
     def infixl(f0: F[T], ops: BinaryOperator*): F[T] = {
-      val fOps = {
-        def binOp(op: BinaryOperator): F[BinaryOperator] = element(op) <> text(op.js)
-        ops.map(binOp).reduce(_ <|> _)
-      }
+      def fOp(op: BinaryOperator) = element(op) <> text(op.js)
+      val fOps = optSpace *> ops.map(fOp).reduce(_ <|> _) <* optSpace
 
-      val flatten = Iso.total[(T, List[(BinaryOperator, T)]), T](
-        {
-          case (x1, ts) =>
-            ts.foldLeft(x1) {
-              // NB: accumulating positions by inspecting the sub-terms,
-              // which seems like a hack. Where would we wrap with `S.pos`
-              // to capture the position directly?
-              case (acc @ Cofree((s1, _), _), (op, x @ Cofree((_, e2), _))) =>
-                Cofree((s1, e2), BinOp(op, acc, x))
-            }
-        },
-        x => {
-          def loop(x: T): (T, List[(BinaryOperator, T)]) = x match {
-            case Cofree(_, BinOp(op, l, r)) if ops contains op =>
-              val (lh, lt) = loop(l)
-              lh -> (lt ++ List(op -> r))
-            case _ => x -> Nil
-          }
-          loop(x)
-        })
-
-      flatten <> (f0 <*> many((optSpace *> fOps <* optSpace) <*> f0))
+      chainl1(f0, fOps, exprBinOp2 >>> fixUp)
     }
 
     def infix0 = nullP <|> trueP <|> falseP <|> numP <|>
@@ -199,7 +193,7 @@ object Test extends App {
     // "false",
     // "1 < 2",
     // "(1 < 2) && true",  // For some reason this parses two ways, with the same result.
-    // "2 ^ 3 & 4 || 5 >> 7 <= 8 in 9",  // ~20s to parse this one! (not any more)
+    "2 ^ 3 & 4 || 5 >> 7 <= 8 in 9",  // ~20s to parse this one! (not any more)
 
     // errors:
     "1 + )",
