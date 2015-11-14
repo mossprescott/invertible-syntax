@@ -59,7 +59,11 @@ object Syntax {
     else
       element(s).inverse <> S.tokenStr(s.length)
 
-  def digit[F[_]](implicit S: Syntax[F]): F[Char] = subset[Char](_.isDigit) <> S.token
+  def digit[F[_]](implicit S: Syntax[F]): F[Char] =
+    subset[Char](_.isDigit) <> S.token
+
+  def letter[F[_]](implicit S: Syntax[F]): F[Char] =
+    subset[Char](_.isLetter) <> S.token
 
   def *>[A, F[_]](f: F[Unit], g: F[A])(implicit S: Syntax[F]): F[A] = {
     // HACK:
@@ -107,6 +111,8 @@ object Syntax {
     def <*>[B](g: => F[B]) = S.<*>(f, g)
     def <|>(g: => F[A]) = S.<|>(f, g)
     def <*(g: F[Unit]) = Syntax.<*(f, g)
+
+    def <+>[B](g: F[B]): F[A \/ B] = (left <> f) <|> (right <> g)
   }
   implicit class SyntaxOps3[F[_]](f: F[Unit])(implicit S: Syntax[F]) {
     def *>[A](g: F[A]) = Syntax.*>(f, g)
