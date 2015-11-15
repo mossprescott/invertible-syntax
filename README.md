@@ -6,4 +6,6 @@ Inspired by Haskell's [invertible-syntax](http://hackage.haskell.org/package/inv
 
 ## Getting Started
 
-There is an overly complicated example parser in [example.scala](src/test/scala/invertible/example.scala).
+A port of the simple parser presented in the paper is in [simple.scala](src/test/scala/invertible/simple.scala).
+
+A more complicated example parser, handling a richer language and providing source locations, is in [example.scala](src/test/scala/invertible/example.scala).

@@ -110,7 +110,7 @@ object SimpleSyntax {
     expression
   }
 
-  val ExpParser = syntax(Syntax.ParserSyntax)
+  val ExpParser = Syntax.Parser.parse(syntax(Syntax.ParserSyntax)) _
   val ExpPrinter = syntax(Syntax.PrinterSyntax)
 }
 
@@ -123,27 +123,27 @@ class SimpleSyntaxSpec extends Specification {
 
   "Parser" should {
     "parse simple literal" in {
-      ExpParser.parse("1") must_== List(\/-(Literal(1)))
+      ExpParser("1") must_== \/-(Literal(1))
     }
 
     "parse simple variable" in {
-      ExpParser.parse("x") must_== List(\/-(Variable("x")))
+      ExpParser("x") must_== \/-(Variable("x"))
     }
 
     "parse example from the paper" in {
-      ExpParser.parse("ifzero (2+3*4) (5) else (6)") must contain(
+      ExpParser("ifzero (2+3*4) (5) else (6)") must_==
         \/-(
           IfZero(
             BinOp(Literal(2), AddOp, BinOp(Literal(3), MulOp, Literal(4))),
             Literal(5),
-            Literal(6))))
+            Literal(6)))
     }
   }
 
   "Printer" should {
     "print example from the paper" in {
       val expr = BinOp(BinOp(Literal(7), AddOp, Literal(8)), MulOp, Literal(9))
-      ExpPrinter.print(expr).map(_.toString) must beSome("(7 + 8) * 9")
+      ExpPrinter(expr).map(_.toString) must beSome("(7 + 8) * 9")
     }
   }
 }
