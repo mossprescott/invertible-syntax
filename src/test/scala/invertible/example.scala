@@ -97,7 +97,7 @@ object ExprSyntax {
     { case (f, a) => Cofree(a, f) },
     v => (v.tail, v.head))
 
-  def fixUp[F[_]: Foldable, A: Semigroup, B] = Iso[F[Cofree[F, A]], Cofree[F, A]](
+  def fixUp[F[_]: Foldable, A: Semigroup] = Iso[F[Cofree[F, A]], Cofree[F, A]](
     f => f.foldMap1Opt(_.head).map(Cofree(_, f)),
     _.tail.some)
 
@@ -139,9 +139,34 @@ object ExprSyntax {
 
     def infixl(f0: F[T], ops: BinaryOperator*): F[T] = {
       def fOp(op: BinaryOperator) = element(op) <> text(op.js)
-      val fOps = optSpace *> ops.map(fOp).reduce(_ <|> _) <* optSpace
+      val fOps = ops.map(fOp).reduce(_ <|> _)
 
-      chainl1(f0, fOps, exprBinOp2 >>> fixUp)
+      // NB: this parses fine, but fails to print because fOps does not handle _all_
+      // of the operators. But that requirement is what makes it slow, I think.
+      // chainl1(f0, fOps, exprBinOp2 >>> fixUp)
+
+      val flatten = Iso.total[(T, List[(BinaryOperator, T)]), T](
+        {
+          case (x1, ts) =>
+            ts.foldLeft(x1) {
+              // NB: accumulating positions by inspecting the sub-terms,
+              // which seems like a hack. Where would we wrap with `S.pos`
+              // to capture the position directly?
+              case (acc @ Cofree(pos1, _), (op, x @ Cofree(pos2, _))) =>
+                Cofree(pos1 |+| pos2, BinOp(op, acc, x))
+            }
+        },
+        x => {
+          def loop(x: T): (T, List[(BinaryOperator, T)]) = x match {
+            case Cofree(_, BinOp(op, l, r)) if ops contains op =>
+              val (lh, lt) = loop(l)
+              lh -> (lt ++ List(op -> r))
+            case _ => x -> Nil
+          }
+          loop(x)
+        })
+
+      flatten <> (f0 <*> many((optSpace *> fOps <* optSpace) <*> f0))
     }
 
     def infix0 = nullP <|> trueP <|> falseP <|> numP <|>
@@ -207,7 +232,7 @@ object Test extends App {
     // "1 < 2",
     // "(1 < 2) && true",  // For some reason this parses two ways, with the same result.
     "2 ^ 3 & 4 || 5 >> 7 <= 8 in 9",  // ~20s to parse this one! (not any more)
-
+    "(1 + 2) << 3 < 4 && 5 !== 6 % 7 >> 8 ^ 9",
     // errors:
     "1 + )",
     "1 + (2*3 - )")
@@ -278,6 +303,33 @@ class ExprSyntaxSpecs extends Specification {
         },
         a => failure(a.toString)
       )
+    }
+  }
+
+  "isomorphicity" should {
+    def roundTrip(s: String): Option[String] =
+      ExprParser(s).toOption.flatMap(ExprPrinter).map(_.toString)
+
+    "round-trip with superfluous parens" in {
+      val src = "(1 + 2) + 3"
+      val exp = "1 + 2 + 3"
+      roundTrip(src) must beSome(exp)
+    }
+
+    "round-trip with necessary parens" in {
+      val src = "(1 + 2) * 3"
+      roundTrip(src) must beSome(src)
+    }
+
+    "round-trip and fix white space" in {
+      val src = "1+2  <  3*4"
+      val exp = "1 + 2 < 3 * 4"
+      roundTrip(src) must beSome(exp)
+    }
+
+    "round-trip a complex expression" in {
+      val src = "1 + 2 << 3 < 4 && 5 !== 6 % 7 >> 8 ^ 9"
+      roundTrip(src) must beSome(src)
     }
   }
 }
