@@ -97,8 +97,8 @@ object ExprSyntax {
     { case (f, a) => Cofree(a, f) },
     v => (v.tail, v.head))
 
-  def fixUp[F[_]: Traverse, A: Semigroup, B] = Iso[F[Cofree[F, A]], Cofree[F, A]](
-    f => f.foldMap(_.head.some).map(Cofree(_, f)),
+  def fixUp[F[_]: Foldable, A: Semigroup, B] = Iso[F[Cofree[F, A]], Cofree[F, A]](
+    f => f.foldMap1Opt(_.head).map(Cofree(_, f)),
     _.tail.some)
 
   // This is effectively the inverse of `fix <> S.pos(p)`
@@ -112,7 +112,7 @@ object ExprSyntax {
   type P[F[_]] = Cofree[F, Pos]
   type T = P[Expr]
 
-  def syntax[F[_]](syntax: Syntax[F]): F[Cofree[Expr, Pos]] = {
+  def exprSyntax[F[_]](syntax: Syntax[F]): F[Cofree[Expr, Pos]] = {
     import Iso._
     import Syntax._
     import ExprConstructors._
@@ -164,8 +164,21 @@ object ExprSyntax {
     js
   }
 
-  val ExprParser = Parser.parse(syntax(Syntax.ParserSyntax)) _
-  val ExprPrinter = syntax(Syntax.PrinterSyntax)
+  val ExprParser = Syntax.parser(exprSyntax)
+  val ExprPrinter = Syntax.printer(exprSyntax)
+
+  def toTree[A](v: Cofree[Expr, A]): Tree[String] = {
+    def label(s: String, a: A) = s"$s $a"
+    v match {
+      case Cofree(ann, Expr.Null)        => Tree.leaf(label("null", ann))
+      case Cofree(ann, Expr.Bool(true))  => Tree.leaf(label("true", ann))
+      case Cofree(ann, Expr.Bool(false)) => Tree.leaf(label("false", ann))
+      case Cofree(ann, Expr.Num(x))      => Tree.leaf(label(x.toString, ann))
+      case Cofree(ann, Expr.BinOp(op, l, r)) =>
+        Tree.node(label(op.toString, ann),
+          toTree(l) #:: toTree(r) #:: Stream.empty)
+    }
+  }
 }
 
 object Test extends App {
@@ -199,16 +212,6 @@ object Test extends App {
     "1 + )",
     "1 + (2*3 - )")
 
-  def toTree(v: Cofree[Expr, Syntax.Pos]): Tree[String] = v match {
-    case Cofree(pos, Expr.Null)        => scalaz.Tree.leaf("null " + pos)
-    case Cofree(pos, Expr.Bool(true))  => scalaz.Tree.leaf("true " + pos)
-    case Cofree(pos, Expr.Bool(false)) => scalaz.Tree.leaf("false " + pos)
-    case Cofree(pos, Expr.Num(x))      => scalaz.Tree.leaf(x + " " + pos)
-    case Cofree(pos, Expr.BinOp(op, l, r)) =>
-      scalaz.Tree.node(op + " " + pos,
-        toTree(l) #:: toTree(r) #:: Stream.empty)
-  }
-
   examples.foreach { src =>
     println("\"" + src + "\"")
     ExprParser(src).fold(
@@ -219,5 +222,62 @@ object Test extends App {
         println("--> " + p.map("\"" + _ + "\"").getOrElse(""))
       })
     println("")
+  }
+}
+
+import org.specs2.mutable._
+
+class ExprSyntaxSpecs extends Specification {
+  import Syntax._
+  import Expr._
+  import ExprSyntax._
+
+  def show[A](v: Cofree[Expr, A]) = toTree(v).drawTree.toString
+
+  def fix(v: Expr[Cofree[Expr, String]], s: String) = Cofree(s, v)
+
+  "ExprParser" should {
+    "parse simple values" in {
+      ExprParser("null").map(show) must_== \/-(show(fix(Null, "1-5")))
+
+      ExprParser(" 123 ").map(show) must_== \/-(show(fix(Num(123), "2-5")))
+    }
+
+    "parse non-trivial expression" in {
+      ExprParser("(1 + 2)*3").map(show) must_== \/-(show(
+        fix(
+          BinOp(Mult,
+            fix(
+              BinOp(Add,
+                fix(Num(1), "2-3"),
+                fix(Num(2), "6-7")),
+              "1-8"),
+              fix(Num(3), "9-10")),
+            "1-10")))
+    }
+
+    "fail with unexpected char" in {
+      ExprParser("_").fold[org.specs2.execute.Result](
+        {
+          case ParseFailure(pos, exp, found) =>
+            pos.column must_== 1
+            exp must contain("\"null\"", "\"true\"", "\"false\"", "digit", "\"(\"", "\" \"")
+            found must beSome("_")
+        },
+        a => failure(a.toString)
+      )
+    }
+
+    "fail with missing token" in {
+      ExprParser("(1 + 2").fold[org.specs2.execute.Result](
+        {
+          case ParseFailure(pos, exp, found) =>
+            pos.column must_== 7
+            exp must contain("\")\"")
+            found must beNone
+        },
+        a => failure(a.toString)
+      )
+    }
   }
 }

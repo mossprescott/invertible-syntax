@@ -63,7 +63,7 @@ object SimpleSyntax {
 
   // 6.4. Syntax descriptions
 
-  def syntax[F[_]](syntax: Syntax[F]): F[Expression] = {
+  def expressionSyntax[F[_]](syntax: Syntax[F]): F[Expression] = {
     import Syntax._
     implicit val S = syntax
     import S._
@@ -96,6 +96,7 @@ object SimpleSyntax {
         case (_, (op, _)) => priority(op) == p
       } >>> binOp
 
+    // NB: getting no help from operator precedence here in Scala
     def ifzero = keyword("ifzero") *> optSpace *> parens(expression) <*> (optSpace *> parens(expression) <*> (optSpace *> keyword("else") *> optSpace *> parens(expression)))
 
     def exp0 = (literal <> integer) <|>
@@ -110,8 +111,8 @@ object SimpleSyntax {
     expression
   }
 
-  val ExpParser = Syntax.Parser.parse(syntax(Syntax.ParserSyntax)) _
-  val ExpPrinter = syntax(Syntax.PrinterSyntax)
+  val ExpParser = Syntax.parser(expressionSyntax)
+  val ExpPrinter = Syntax.printer(expressionSyntax)
 }
 
 
