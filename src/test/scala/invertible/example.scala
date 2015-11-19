@@ -78,12 +78,8 @@ object ExprConstructors {
   def exprNum[A] = iso[Int, Expr[A]](
     { case x => Num(x) },
     { case Num(x) => x } )
-
-  def exprBinOp[A] = iso[(BinaryOperator, A, A), Expr[A]](
-    { case (op, l, r) => BinOp(op, l, r) },
-    { case BinOp(op, l, r) => (op, l, r) })
-  // Variant with re-associated args to match chainl1's signture:
-  def exprBinOp2[A] = iso[(A, (BinaryOperator, A)), Expr[A]](
+  // NB: re-associated args to work better with `many`:
+  def exprBinOp[A] = iso[(A, (BinaryOperator, A)), Expr[A]](
     { case (l, (op, r)) => BinOp(op, l, r) },
     { case BinOp(op, l, r) => (l, (op, r)) })
 }
@@ -108,6 +104,48 @@ object ExprSyntax {
   // re-wrapping so that the actual Pos would be available.
   def unPos[F[_]](p: F[T])(implicit S: Syntax[F]) =
     unit.inverse <> (second(ignore[Pos](null)) <> (fix.inverse <> p))
+
+  /** Faster version of chainl1, which parses any set of left-associative
+    * infix operators and deals with recording source locations in Cofree.
+    * This one is not as clean as chainl1; in particular, it needs to have
+    * access to the actual operator values, so it can look them up when
+    * unparsing (so it isn't a true combinator).
+    */
+  def chainlp[F[_], G[_], A](
+      term: F[Cofree[G, Pos]],
+      ops: List[A],
+      opf: A => F[A],
+      cons: Iso[(Cofree[G, Pos], (A, Cofree[G, Pos])), G[Cofree[G, Pos]]])(
+      implicit S: Syntax[F]) = {
+    val opP = ops.map(opf).reduce(_ <|> _)
+
+    val flatten = Iso[(Cofree[G, Pos], List[(A, Cofree[G, Pos])]), Cofree[G, Pos]](
+      {
+        case (x1, ts) =>
+          ts.foldLeftM(x1) {
+            // NB: accumulating positions by inspecting the sub-terms,
+            // which seems like a hack. Where would we wrap with `S.pos`
+            // to capture the position directly?
+            case (acc @ Cofree(pos1, _), (op, x @ Cofree(pos2, _))) =>
+              cons.app((acc, (op, x))).map(g => Cofree(pos1 |+| pos2, g))
+          }
+      },
+      x => {
+        def loop(x: Cofree[G, Pos]): Option[(Cofree[G, Pos], List[(A, Cofree[G, Pos])])] =
+          cons.unapp(x.tail).flatMap { case (l, (o, r)) =>
+            if (ops contains o) {
+              loop(l).map { case (lh, lt) =>
+                (lh, (lt ++ List((o, r))))
+              }
+            }
+            else (x, Nil).some
+          }.orElse((x, Nil).some)
+
+        loop(x)
+      })
+
+    flatten <> (term <*> many(opP <*> term))
+  }
 
   type P[F[_]] = Cofree[F, Pos]
   type T = P[Expr]
@@ -138,35 +176,15 @@ object ExprSyntax {
     }
 
     def infixl(f0: F[T], ops: BinaryOperator*): F[T] = {
-      def fOp(op: BinaryOperator) = element(op) <> text(op.js)
-      val fOps = ops.map(fOp).reduce(_ <|> _)
+      def opf(op: BinaryOperator) = optSpace *> (element(op) <> text(op.js)) <* optSpace
+
+      chainlp(f0, ops.toList, opf, exprBinOp)
 
       // NB: this parses fine, but fails to print because fOps does not handle _all_
       // of the operators. But that requirement is what makes it slow, I think.
+      //
+      // val fOps = ops.map(op => optSpace *> fOp(op) <* optSpace).reduce(_ <|> _)
       // chainl1(f0, fOps, exprBinOp2 >>> fixUp)
-
-      val flatten = Iso.total[(T, List[(BinaryOperator, T)]), T](
-        {
-          case (x1, ts) =>
-            ts.foldLeft(x1) {
-              // NB: accumulating positions by inspecting the sub-terms,
-              // which seems like a hack. Where would we wrap with `S.pos`
-              // to capture the position directly?
-              case (acc @ Cofree(pos1, _), (op, x @ Cofree(pos2, _))) =>
-                Cofree(pos1 |+| pos2, BinOp(op, acc, x))
-            }
-        },
-        x => {
-          def loop(x: T): (T, List[(BinaryOperator, T)]) = x match {
-            case Cofree(_, BinOp(op, l, r)) if ops contains op =>
-              val (lh, lt) = loop(l)
-              lh -> (lt ++ List(op -> r))
-            case _ => x -> Nil
-          }
-          loop(x)
-        })
-
-      flatten <> (f0 <*> many((optSpace *> fOps <* optSpace) <*> f0))
     }
 
     def infix0 = nullP <|> trueP <|> falseP <|> numP <|>
