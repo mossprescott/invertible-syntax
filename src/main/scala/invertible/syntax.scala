@@ -16,9 +16,7 @@
 
 package invertible
 
-import scalaz._
-import Scalaz._
-import scala.util.parsing.input._
+import scalaz._, Scalaz._
 
 trait Syntax[F[_]] extends IsoFunctor[F] with ProductFunctor[F] with Alternative[F] {
   // // IsoFunctor
@@ -41,7 +39,7 @@ trait Syntax[F[_]] extends IsoFunctor[F] with ProductFunctor[F] with Alternative
   def tokenStr(length: Int): F[String]
 
   /** Records the position before and after parsing some value. */
-  def pos[A](p: F[A]): F[(A, Syntax.Pos)]
+  def pos[A](p: F[A]): F[(A, Position)]
 
   /** Wrap a parser with a label used in error reporting. */
   def label[A](p: F[A], expected: => String): F[A]
@@ -119,59 +117,24 @@ object Syntax {
     def *>[A](g: F[A]) = Syntax.*>(f, g)
   }
 
-  final case class Pos(start: scala.util.parsing.input.Position, end: scala.util.parsing.input.Position) {
-    override def toString = (start.line, start.column, end.line, end.column) match {
-      case (1,  sc, 1,  ec) if sc == ec             => s"$sc"
-      case (1,  sc, 1,  ec)                         => s"$sc-$ec"
-      case (sl, sc, el, ec) if sl == el && sc == ec => s"$sl:$sc"
-      case (sl, sc, el, ec) if sl == el             => s"$sl:$sc-$ec"
-      case (sl, sc, el, ec)                         => s"$sl:$sc-$el:$ec"
-    }
-  }
-  object Pos {
-    implicit val PosSemigroup: Semigroup[Pos] = new Semigroup[Pos] {
-      def append(p1: Pos, p2: => Pos) = Pos(p1.start, p2.end)
-    }
-  }
-
-  final case class ParseFailure(pos: Position, expected: List[String], found: Option[String]) {
-    override def toString = "expected: " + expected.mkString(" or ") + found.fold("")("; found: '" + _ + "'") + "\n" + pos.longString
-  }
-  object ParseFailure {
-    def apply(r: CharSequenceReader, expected: String): ParseFailure =
-      ParseFailure(r.pos, List(expected),
-        if (r.first == CharSequenceReader.EofCh) None else Some(r.first.toString))
-  }
-
-  implicit val ParseFailureSemigroup = new Semigroup[Option[ParseFailure]] {
-    def append(of1: Option[ParseFailure], of2: => Option[ParseFailure]) = (of1, of2) match {
-      case (None, _) => of2
-      case (_, None) => of1
-      case (Some(f1), Some(f2)) => Some(
-        if (f1.pos < f2.pos) f2
-        else if (f1.pos == f2.pos) ParseFailure(f1.pos, f1.expected ++ f2.expected, f1.found)
-        else f1)
-    }
-  }
-
   /** A parser is simply a pure function from an input sequence to a tuple of:
    * - an optional failure, which represents the most advanced failure yet seen, and
    * - a list of possible results, each paired with the remaining input.
    */
-  type Parser[A] = CharSequenceReader => (Option[ParseFailure], List[(A, CharSequenceReader)])
+  type Parser[A] = Source => (Option[ParseFailure], List[(A, Source)])
 
   val ParserSyntax = new Syntax[Parser] {
     def <>[A, B](iso: Iso[A, B], p: Parser[A]) = { r =>
       val (e, ps1) = p(r)
       (e,
         ps1.flatMap { case (a, r1) =>
-          iso.app(a).fold[List[(B, CharSequenceReader)]](Nil)((_, r1) :: Nil)
+          iso.app(a).fold[List[(B, Source)]](Nil)((_, r1) :: Nil)
         })
     }
 
     def <*>[A, B](fa: Parser[A], fb: => Parser[B]) = { r =>
       val (e1, ps1) = fa(r)
-      val (e2s: List[Option[ParseFailure]], ps2s: List[List[((A, B), CharSequenceReader)]]) =
+      val (e2s: List[Option[ParseFailure]], ps2s: List[List[((A, B), Source)]]) =
         ps1.map { case (a, r1) =>
           val (e, ps2) = fb(r1)
           (e, ps2.map { case (b, r2) => ((a, b), r2) })
@@ -190,25 +153,26 @@ object Syntax {
       r => (None, List((a, r)))
 
     def token: Parser[Char] = r =>
-      if (r.atEnd) (Some(ParseFailure(r, "any char")), Nil)
-      else (None, List((r.first, r.rest)))
+      r.first.cata(
+        c => (None, List((c, r.rest))),
+        (Some(ParseFailure(r, "any char")), Nil))
 
     def tokenStr(length: Int): Parser[String] = { r =>
-      val s = r.source.subSequence(r.offset, r.offset+length).toString
-      if (s.length < length) (Some(ParseFailure(r, "any " + length + " chars")), Nil)
-      else (None, List((s, r.drop(length))))
+      r.prefix(length).cata(
+        s => (None, List((s, r.drop(length)))),
+        (Some(ParseFailure(r, "any " + length + " chars")), Nil))
     }
 
-    def pos[A](p: Parser[A]): Parser[(A, Pos)] = { r =>
+    def pos[A](p: Parser[A]): Parser[(A, Position)] = { r =>
       val before = r.pos
       p(r).map(_.map {
-        case (a, r1) => ((a, Pos(before, r1.pos)), r1)
+        case (a, r1) => ((a, before |+| r1.pos), r1)
       })
     }
 
     def label[A](p: Parser[A], expected: => String) = { r =>
-      val (err, ps) = p(r)
-      (err.map(_ => ParseFailure(r, expected)),
+      val (_, ps) = p(r)
+      (if (ps.isEmpty) Some(ParseFailure(r, expected)) else None,
         ps)
     }
   }
@@ -217,7 +181,7 @@ object Syntax {
     val p = syntax(Syntax.ParserSyntax)
 
     { s =>
-      val r = new CharArrayReader(s.toCharArray)
+      val r = new Source(s, 0)
       val (err, ps) = p(r)
       val as = ps.collect { case (a, rem) if rem.atEnd => a }
       (err, as) match {
