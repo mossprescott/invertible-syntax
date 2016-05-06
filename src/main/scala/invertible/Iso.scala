@@ -19,13 +19,19 @@ package invertible
 import scalaz._, Scalaz._
 
 final case class Iso[A, B] (app: A => Option[B], unapp: B => Option[A]) {
-  // def <>[F[_]](fa: F[A]):
+  def compose[C](that: Iso[C, A]) = Iso[C, B](
+    c => that.app(c).flatMap(app),
+    b => unapp(b).flatMap(that.unapp))
 
+  /** Alias for `compose`. */
+  def <<<[C](that: Iso[C, A]): Iso[C, B] = compose(that)
+
+  /** Flipped `<<<`. */
   def >>>[C](that: Iso[B, C]) = Iso[A, C](
     a => app(a).flatMap(that.app),
     c => that.unapp(c).flatMap(unapp))
 
-  def <|>(that: Iso[A, B]): Iso[A, B] = Iso(
+  def |(that: Iso[A, B]): Iso[A, B] = Iso(
     a => this.app(a).orElse(that.app(a)),
     b => this.unapp(b).orElse(that.unapp(b)))
 
@@ -90,9 +96,9 @@ object Iso {
   }
 
   // A gross hack for subtyping:
-  def widen[A: Manifest, B >: A] = Iso[A, B](
-    Some.apply,
-    b => if (manifest[A].runtimeClass.isAssignableFrom(b.getClass)) Some(b.asInstanceOf[A]) else None)
+  // def widen[A: Manifest, B >: A] = Iso[A, B](
+  //   Some.apply,
+  //   b => if (manifest[A].runtimeClass.isAssignableFrom(b.getClass)) Some(b.asInstanceOf[A]) else None)
 
   // Derived:
 
@@ -119,6 +125,7 @@ object Iso {
     { case -\/(()) => Nil;     case \/-((x, xs)) => x :: xs },
     { case Nil     => -\/(()); case x :: xs      => \/-((x, xs)) })
   val chars = Iso.total[List[Char], String](_.mkString, _.toList)
+  val int = Iso[String, BigInt](s => \/.fromTryCatchNonFatal(BigInt(s)).toOption, _.toString.some)
   def left[A, B]  = Iso[A, A \/ B](a => Some(-\/(a)), _.swap.toOption)
   def right[A, B] = Iso[B, A \/ B](b => Some(\/-(b)), _.toOption)
   def none[A] = Iso[Unit, Option[A]](_ => None, _.fold[Option[Unit]](Some(()))(_ => None))
@@ -126,15 +133,13 @@ object Iso {
 }
 
 trait IsoFunctor[F[_]] {
-  // NB: Scala doesn't allow <$>
-  // def <>[A, B](iso: Iso[A, B]): F[A] => F[B]
-  def <>[A, B](iso: Iso[A, B], p: F[A]): F[B]
+  def map[A, B](p: F[A], iso: Iso[A, B]): F[B]
 }
 
 trait ProductFunctor[F[_]] {
-  def <*>[A, B](fa: F[A], fb: => F[B]): F[(A, B)]
+  def and[A, B](fa: F[A], fb: => F[B]): F[(A, B)]
 }
 
 trait Alternative[F[_]] {
-  def <|>[A](f1: F[A], f2: => F[A]): F[A]
+  def or[A](f1: F[A], f2: => F[A]): F[A]
 }

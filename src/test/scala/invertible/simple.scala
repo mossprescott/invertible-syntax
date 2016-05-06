@@ -51,9 +51,9 @@ object SimpleSyntax {
   val binOp: Iso[(Expression, (Operator, Expression)), Expression] = iso(
     { case (left, (op, right)) => BinOp(left, op, right) },
     { case BinOp(left, op, right) => (left, (op, right)) })
-  val ifZero: Iso[(Expression, (Expression, Expression)), Expression] = iso(
-    { case (x, (zero, otherwise)) => IfZero(x, zero, otherwise) },
-    { case IfZero(x, zero, otherwise) => (x, (zero, otherwise)) })
+  val ifZero: Iso[((Expression, Expression), Expression), Expression] = iso(
+    { case ((x, zero), otherwise) => IfZero(x, zero, otherwise) },
+    { case IfZero(x, zero, otherwise) => ((x, zero), otherwise) })
   val addOp: Iso[Unit, Operator] = iso(
     { case () => AddOp },
     { case AddOp => () })
@@ -71,20 +71,21 @@ object SimpleSyntax {
     val keywords = List("ifzero", "else")
 
     val identifier =
-      (cons >>> chars >>> subset((s: String) => !(keywords contains s))) <>
-        (letter <*> many(letter <|> digit))
+      (letter * (letter | digit).many) ^
+        (cons >>> chars >>> subset(s => !(keywords contains s)))
 
-    def keyword(str: String) = right.inverse <> (identifier <+> text(str))
+    def keyword(str: String) = (identifier |+| text(str)) ^ right.inverse
 
     val integer =
-      (chars >>> total[String, Int](_.toInt, _.toString)) <> many1(digit)
+      digit.many1 ^ chars >>> total[String, Int](_.toInt, _.toString)
 
     val parens: F[Expression] => F[Expression] =
-      between(text("("), text(")")) _
+      _.between(text("("), text(")"))
 
-    val ops = (mulOp <> text("*")) <|> (addOp <> text("+"))
+    val ops = text("*") ^ mulOp |
+              text("+") ^ addOp
 
-    val spacedOps = between(optSpace, optSpace)(ops)
+    val spacedOps = ops.between(optSpace, optSpace)
 
     val priority: Operator => Int = {
       case MulOp => 1
@@ -96,12 +97,13 @@ object SimpleSyntax {
         case (_, (op, _)) => priority(op) == p
       } >>> binOp
 
-    // NB: getting no help from operator precedence here in Scala
-    def ifzero = keyword("ifzero") *> optSpace *> parens(expression) <*> (optSpace *> parens(expression) <*> (optSpace *> keyword("else") *> optSpace *> parens(expression)))
+    def ifzero = keyword("ifzero") *> optSpace *> parens(expression) <*>
+                optSpace *> parens(expression) <*>
+                optSpace *> keyword("else") *> optSpace *> parens(expression)
 
-    def exp0 = (literal <> integer) <|>
-                (variable <> identifier) <|>
-                (ifZero <> ifzero) <|>
+    def exp0 = integer ^ literal |
+                identifier ^ variable |
+                ifzero ^ ifZero |
                 parens(skipSpace *> expression <* skipSpace)
     def exp1 = chainl1(exp0, spacedOps, binOpPrio(1))
     def exp2 = chainl1(exp1, spacedOps, binOpPrio(2))
