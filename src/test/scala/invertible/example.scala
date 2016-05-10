@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 - 2015 SlamData Inc.
+ * Copyright 2014 - 2016 SlamData Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -98,12 +98,12 @@ object ExprSyntax {
     _.tail.some)
 
   // This is effectively the inverse of `fix <> S.pos(p)`
-  // NB: the original Pos is discarded, so it has to be synthesized
+  // NB: the original Position is discarded, so it has to be synthesized
   // when un-parsing, but of course we don't care, so just using
   // `null` here. A cleaner approach would combine uwrapping and
-  // re-wrapping so that the actual Pos would be available.
+  // re-wrapping so that the actual Position would be available.
   def unPos[F[_]](p: F[T])(implicit S: Syntax[F]) =
-    unit.inverse <> (second(ignore[Pos](null)) <> (fix.inverse <> p))
+    unit.inverse <> (second(ignore[Position](null)) <> (fix.inverse <> p))
 
   /** Faster version of chainl1, which parses any set of left-associative
     * infix operators and deals with recording source locations in Cofree.
@@ -112,14 +112,14 @@ object ExprSyntax {
     * unparsing (so it isn't a true combinator).
     */
   def chainlp[F[_], G[_], A](
-      term: F[Cofree[G, Pos]],
+      term: F[Cofree[G, Position]],
       ops: List[A],
       opf: A => F[A],
-      cons: Iso[(Cofree[G, Pos], (A, Cofree[G, Pos])), G[Cofree[G, Pos]]])(
+      cons: Iso[(Cofree[G, Position], (A, Cofree[G, Position])), G[Cofree[G, Position]]])(
       implicit S: Syntax[F]) = {
     val opP = ops.map(opf).reduce(_ <|> _)
 
-    val flatten = Iso[(Cofree[G, Pos], List[(A, Cofree[G, Pos])]), Cofree[G, Pos]](
+    val flatten = Iso[(Cofree[G, Position], List[(A, Cofree[G, Position])]), Cofree[G, Position]](
       {
         case (x1, ts) =>
           ts.foldLeftM(x1) {
@@ -131,7 +131,7 @@ object ExprSyntax {
           }
       },
       x => {
-        def loop(x: Cofree[G, Pos]): Option[(Cofree[G, Pos], List[(A, Cofree[G, Pos])])] =
+        def loop(x: Cofree[G, Position]): Option[(Cofree[G, Position], List[(A, Cofree[G, Position])])] =
           cons.unapp(x.tail).flatMap { case (l, (o, r)) =>
             if (ops contains o) {
               loop(l).map { case (lh, lt) =>
@@ -147,10 +147,10 @@ object ExprSyntax {
     flatten <> (term <*> many(opP <*> term))
   }
 
-  type P[F[_]] = Cofree[F, Pos]
+  type P[F[_]] = Cofree[F, Position]
   type T = P[Expr]
 
-  def exprSyntax[F[_]](syntax: Syntax[F]): F[Cofree[Expr, Pos]] = {
+  def exprSyntax[F[_]](syntax: Syntax[F]): F[Cofree[Expr, Position]] = {
     import Iso._
     import Syntax._
     import ExprConstructors._
@@ -303,7 +303,7 @@ class ExprSyntaxSpecs extends Specification {
       ExprParser("_").fold[org.specs2.execute.Result](
         {
           case ParseFailure(pos, exp, found) =>
-            pos.column must_== 1
+            pos.startColumn must_== 1
             exp must contain("\"null\"", "\"true\"", "\"false\"", "digit", "\"(\"", "\" \"")
             found must beSome("_")
         },
@@ -315,7 +315,7 @@ class ExprSyntaxSpecs extends Specification {
       ExprParser("(1 + 2").fold[org.specs2.execute.Result](
         {
           case ParseFailure(pos, exp, found) =>
-            pos.column must_== 7
+            pos.startColumn must_== 7
             exp must contain("\")\"")
             found must beNone
         },
