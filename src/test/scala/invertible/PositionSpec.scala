@@ -40,6 +40,12 @@ class PositionSpec extends Specification {
         | ^""".stripMargin
     }
 
+    "render empty location in empty input" in {
+      Position("", 0, 0).longString must_==
+      """
+        |^""".stripMargin
+    }
+
     "render non-empty location in single line" in {
       Position("abc def ghi", 4, 7).longString must_==
       """abc def ghi

@@ -63,7 +63,7 @@ case class Position(chars: java.lang.CharSequence, startOffset: Int, endOffset: 
       s"$startLine:$startColumn-$endLine:$endColumn"
 
   private lazy val lineIndex: Vector[Int] =
-    (0 until chars.length).filter(x => x == 0 || chars.charAt(x - 1) == '\n').toVector :+ chars.length+1
+    0 +: (0 until chars.length).filter(x => x > 0 && chars.charAt(x - 1) == '\n').toVector :+ chars.length+1
 
   private def line(offset: Int): Int = {
     @scala.annotation.tailrec
