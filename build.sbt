@@ -11,7 +11,10 @@ lazy val root = (project in file("."))
     name := "invertible-syntax",
     initialCommands in console := "import invertible._, Syntax._",
     libraryDependencies ++= Seq(
-      "org.scalaz" %% "scalaz-core" % "7.2.2",
-      "org.specs2" %% "specs2-core" % "3.7.3" % "test"
-    )
+      "org.scalaz"   %% "scalaz-core"     % "7.2.2",
+      "org.specs2"   %% "specs2-core"     % "3.7.3"  % "test",
+      "com.slamdata" %% "matryoshka-core" % "0.10.2"
+    ),
+    addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.7.1")
   ))
+
