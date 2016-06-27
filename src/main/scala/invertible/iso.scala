@@ -123,6 +123,7 @@ object Iso {
   def right[A, B] = Iso[B, A \/ B](b => Some(\/-(b)), _.toOption)
   def none[A] = Iso[Unit, Option[A]](_ => None, _.fold[Option[Unit]](Some(()))(_ => None))
   def some[A] = Iso[A, Option[A]](a => Some(Some(a)), identity)
+  def inject[F[_], G[_], A](implicit I: F :<: G) = Iso[F[A], G[A]](I.inj(_).some, I.prj(_))
 }
 
 trait IsoFunctor[F[_]] {

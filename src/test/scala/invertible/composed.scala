@@ -17,7 +17,7 @@
 package invertible
 
 import invertible._
-import matryoshka._, TraverseT._, Recursive.ops._, Corecursive.ops._
+import matryoshka._, TraverseT._, Recursive.ops._
 import scalaz._, Scalaz._
 
 /*
@@ -68,18 +68,14 @@ object Composed {
   // Some utilities:
   //
 
+  // NB: belongs in the `Iso` companion, but that would create a otherwise
+  // unused dependency on matryoshka there.
+  // Also, Could be generalized to `T: Recursive, Corecursive`, but that
+  // would require a `F: Functor`.
+  def fix[F[_]] = total[F[Fix[F]], Fix[F]](Fix(_), _.unFix)
+
   def fixF[F[_], G[_]](implicit I: F :<: G): Iso[F[Fix[G]], Fix[G]] =
-    Iso(
-      f => Fix[G](I.inj(f)).some,
-      g => I.prj(g.unFix))
-
-  // def fix[F[_]]: Iso[F[Fix[F]], Fix[F]] = fixF[F, F]
-
-  // def inject[F[_]: Traverse, G[_]: Functor](implicit I: F :<: G): Iso[Fix[F], Fix[G]] =
-  //   Iso[Fix[F], Fix[G]](
-  //     f => FunctorT[Fix].transAna[F, G](f)(I.inj).some,
-  //     g => TraverseT[Fix].transAnaM[Option, G, F](g)(I.prj))
-
+    inject[F, G, Fix[G]] >>> fix[G]
 
   import Syntax._
 
@@ -171,9 +167,9 @@ object Composed {
 
     val name: P[Symbol] = symbol <> letter
 
-    def freeP: P[Fix[Bound]] = fixF[Bound, Bound] <> (free[Fix[Bound]] <> name)
+    def freeP: P[Fix[Bound]] = fix <> (free[Fix[Bound]] <> name)
 
-    def letP: P[Fix[Bound]] = fixF[Bound, Bound] <> (let[Fix[Bound]] <>
+    def letP: P[Fix[Bound]] = fix <> (let[Fix[Bound]] <>
                       (text("let") *> sepSpace *>
                         name <*>
                         optSpace *> text("=") *> optSpace *>
