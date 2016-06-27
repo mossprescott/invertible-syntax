@@ -151,7 +151,7 @@ object Composed {
 
     val term: P[Fix[T]] = termSyntax(s)
 
-    val ts: P[(Fix[T], List[Fix[T]])] = (term <*> many (optSpace *> text("*") *> optSpace *> term))
+    val ts: P[(Fix[T], List[Fix[T]])] = (term <*> many (skipSpace *> text("*") *> skipSpace *> term))
 
     foldl(mul[Fix[T]] >>> fixF[Mul, T]) <> ts
   }
@@ -289,7 +289,7 @@ class ComposedSpecs extends Specification {
     }
 
     "round-trip and fix white space" in {
-      parse("1*2  +  3").toOption.flatMap(print).map(_.toString) must beSome("1 * 2 + 3")
+      parse("1 * 2+3").toOption.flatMap(print).map(_.toString) must beSome("1*2 + 3")
     }
   }
 
@@ -323,11 +323,19 @@ class ComposedSpecs extends Specification {
     }
 
     "round-trip with nec. parens" in {
-      parse("1 * (2+3)").toOption.flatMap(print).map(_.toString) must beSome("1 * (2 + 3)")
+      parse("1 * (2+3)").toOption.flatMap(print).map(_.toString) must beSome("1*(2 + 3)")
     }
 
     "round-trip and drop parens" in {
-      parse("(1*2) + 3").toOption.flatMap(print).map(_.toString) must beSome("1 * 2 + 3")
+      parse("(1*2) + 3").toOption.flatMap(print).map(_.toString) must beSome("1*2 + 3")
+    }
+
+    "round-trip something more complex" in {
+      // Hoping to show that this parser scales to larger, more nested
+      // expressions, but a more interesting test would require defining
+      // a realistic number of operators and precedences.
+      val expr = "1 + 2*3 + 4*(5 + 6) + (7 + 8)*(9 + 10*(11 + 12*(13 + 14*(15 + 16)*(17 + 18 + 19))))"
+      parse(expr).toOption.flatMap(print).map(_.toString) must beSome(expr)
     }
   }
 
