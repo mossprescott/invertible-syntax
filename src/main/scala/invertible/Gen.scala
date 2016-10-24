@@ -77,10 +77,10 @@ object gen {
   /** Generate `Iso[(A, B), T]` for a two-argument case class extending `T`.
   {{{
   scala> final case class Foo2(x: Int, y: String) extends Foo
-  defined class Foo1
+  defined class Foo2
 
   scala> gen.iso2[Foo, Foo2].apply
-  res1: invertible.Iso[(Int, String),Foo] = Iso(<function1>,<function1>)
+  res2: invertible.Iso[(Int, String),Foo] = Iso(<function1>,<function1>)
   }}}
   */
   object iso2 {
