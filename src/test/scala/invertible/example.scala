@@ -67,9 +67,9 @@ object ExprConstructors {
   import Expr._
 
   def exprNull[A]  = gen.iso0[Expr[A], Null].apply
-  def exprBool[A]  = gen.iso1[Expr[A], Bool, Boolean].apply
-  def exprNum[A]   = gen.iso1[Expr[A], Num, Int].apply
-  def exprBinOp[A] = gen.iso3[Expr[A], BinOp[A], BinaryOperator, A, A].apply
+  def exprBool[A]  = gen.iso1[Expr[A], Bool].apply
+  def exprNum[A]   = gen.iso1[Expr[A], Num].apply
+  def exprBinOp[A] = gen.iso3[Expr[A], BinOp[A]].apply
 
   // NB: re-associated args to work better with `many`:
   def exprBinOpL[A] = toLeftAssoc.inverse >>> exprBinOp[A]
