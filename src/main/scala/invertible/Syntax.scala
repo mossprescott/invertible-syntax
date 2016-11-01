@@ -19,7 +19,7 @@ package invertible
 import scalaz._, Scalaz._
 import Leibniz.===
 
-trait Syntax[P[_]] extends IsoFunctor[P] with ProductFunctor[P] with Alternative[P] {
+trait SyntaxHandler[P[_]] extends IsoFunctor[P] with ProductFunctor[P] with Alternative[P] {
   /** A value that does not appear in the text at all. */
   def pure[A](a: A): P[A]
 
@@ -36,22 +36,24 @@ trait Syntax[P[_]] extends IsoFunctor[P] with ProductFunctor[P] with Alternative
 
   /** Wrap a parser with a label used in error reporting. */
   def label[A](p: P[A], expected: => String): P[A]
-}
-object Syntax {
+
+
+  // Derived:
+
   import Iso._
 
-  def text[A, P[_]](s: String)(implicit S: Syntax[P]): P[Unit] =
-    if (s == "") S.pure(())
+  def text[A](s: String): P[Unit] =
+    if (s == "") pure(())
     else
-      S.label(S.tokenStr(s.length) ^ element(s).inverse, "\"" + s + "\"")
+      label(tokenStr(s.length) ^ element(s).inverse, "\"" + s + "\"")
 
-  def digit[P[_]](implicit S: Syntax[P]): P[Char] =
-    S.label(S.token ^ subset[Char](_.isDigit), "digit")
+  def digit: P[Char] =
+    label(token ^ subset[Char](_.isDigit), "digit")
 
-  def letter[P[_]](implicit S: Syntax[P]): P[Char] =
-    S.label(S.token ^ subset[Char](_.isLetter), "letter")
+  def letter: P[Char] =
+    label(token ^ subset[Char](_.isLetter), "letter")
 
-  def int[P[_]](implicit S: Syntax[P]): P[BigInt] =
+  def int: P[BigInt] =
     digit.many ^ chars ^ Iso.int
 
   /**
@@ -59,20 +61,21 @@ object Syntax {
     op: a parser/printer for _all_ infix operators.
     f: an iso which applies only to operators (B) with this precedence.
     */
-  def chainl1[A, B, P[_]](arg: P[A], op: P[B], f: Iso[(A, (B, A)), A])(implicit S: Syntax[P]): P[A] =
+  def chainl1[A, B](arg: P[A], op: P[B], f: Iso[(A, (B, A)), A]): P[A] =
     (arg * (op * arg).many) ^ foldl(f)
 
   /** Accept 0 or more spaces, emit none. */
-  def skipSpace[P[_]](implicit S: Syntax[P]): P[Unit] =
+  def skipSpace: P[Unit] =
     text(" ").many ^ ignore(List[Unit]())
 
   /** Accept 0 or more spaces, emit one. */
-  def optSpace[P[_]](implicit S: Syntax[P]): P[Unit] =
+  def optSpace: P[Unit] =
     text(" ").many ^ ignore(List(()))
 
   /** Accept 1 or more spaces, emit one. */
-  def sepSpace[P[_]](implicit S: Syntax[P]): P[Unit] =
+  def sepSpace: P[Unit] =
     text(" ") <* skipSpace
+
 
   /*
     Compare with the operators from Haskell's invertible-syntax:
@@ -85,27 +88,27 @@ object Syntax {
     (See http://scala-lang.org/files/archive/spec/2.11/06-expressions.html#infix-operations)
    */
 
-  implicit class SyntaxOps[A, P[_]](p: P[A])(implicit S: Syntax[P]) {
+  implicit class Ops[A](p: P[A]) {
     /** "map" over the value with an Iso. */
-    def ^[B](iso: Iso[A, B]): P[B] = S.map(p, iso)
+    def ^[B](iso: Iso[A, B]): P[B] = map(p, iso)
 
     /** Sequence (aka `and`). */
-    def *[B](q: => P[B]) = S.and(p, q)
+    def *[B](q: => P[B]): P[(A, B)] = and(p, q)
     /** Alias for `*` with medium precedence. */
-    def <*>[B](q: => P[B]) = S.and(p, q)
+    def <*>[B](q: => P[B]): P[(A, B)] = and(p, q)
 
     /** Alternatives (aka `or`). */
-    def |(q: => P[A]) = S.or(p, q)
+    def |(q: => P[A]): P[A] = or(p, q)
 
     /** Sequence, ignoring the result on the right (which must be Unit, so as
       * not to lose information when printing). */
-    def <*(q: P[Unit]) = (p * q) ^ unit.inverse
+    def <*(q: P[Unit]): P[A] = (p * q) ^ unit.inverse
     /** Alias for `<*` with highest precedence. */
-    def *<(q: P[Unit]) = p <* q
+    def *<(q: P[Unit]): P[A] = p <* q
 
     /** Sequence, ignoring the result on the left (which must be Unit, so as
       * not to lose information when printing). */
-    def *>[B](q: P[B])(implicit ev: A === Unit) =
+    def *>[B](q: P[B])(implicit ev: A === Unit): P[B] =
       (ev.subst(p) * q) ^ (unit[B] >>> commute).inverse
 
     /** Alternatives, capturing both types in disjunction. */
@@ -115,7 +118,7 @@ object Syntax {
 
 
     def many: P[List[A]] =
-      (S.pure(()) ^ Iso.nil[A]) | p.many1
+      (pure(()) ^ Iso.nil[A]) | p.many1
 
     // TODO: use NonEmptyList?
     def many1: P[List[A]] =
@@ -132,15 +135,19 @@ object Syntax {
     def between(l: P[Unit], r: P[Unit]): P[A] =
       l *> p <* r
   }
+}
 
-  /** A parser is simply a pure function from an input sequence to a tuple of:
+object Syntax {
+  /** Internal type for parsing a portion of the input:
    * - an optional failure, which represents the most advanced failure yet seen, and
    * - a list of possible results, each paired with the remaining input.
    */
-  type Parser[A] = Source => (Option[ParseFailure], List[(A, Source)])
+  type PartialParser[A] = Source => (Option[ParseFailure], List[(A, Source)])
 
-  val ParserSyntax = new Syntax[Parser] {
-    def map[A, B](p: Parser[A], iso: Iso[A, B]) = { r =>
+  type Parser[A] = String => (ParseFailure \/ A)
+
+  val ParserSyntaxHandler = new SyntaxHandler[PartialParser] {
+    def map[A, B](p: PartialParser[A], iso: Iso[A, B]) = { r =>
       val (e, ps1) = p(r)
       (e,
         ps1.flatMap { case (a, r1) =>
@@ -148,7 +155,7 @@ object Syntax {
         })
     }
 
-    def and[A, B](fa: Parser[A], fb: => Parser[B]) = { r =>
+    def and[A, B](fa: PartialParser[A], fb: => PartialParser[B]) = { r =>
       val (e1, ps1) = fa(r)
       val (e2s: List[Option[ParseFailure]], ps2s: List[List[((A, B), Source)]]) =
         ps1.map { case (a, r1) =>
@@ -159,7 +166,7 @@ object Syntax {
         ps2s.flatten)
     }
 
-    def or[A](f1: Parser[A], f2: => Parser[A]) = { r =>
+    def or[A](f1: PartialParser[A], f2: => PartialParser[A]) = { r =>
       val (e1, ps1) = f1(r)
       val (e2, ps2) = f2(r)
       (e1 |+| e2, ps1 ++ ps2)
@@ -168,33 +175,33 @@ object Syntax {
     def pure[A](a: A) =
       r => (None, List((a, r)))
 
-    def token: Parser[Char] = r =>
+    def token: PartialParser[Char] = r =>
       r.first.cata(
         c => (None, List((c, r.rest))),
         (Some(ParseFailure(r, "any char")), Nil))
 
-    def tokenStr(length: Int): Parser[String] = { r =>
+    def tokenStr(length: Int): PartialParser[String] = { r =>
       r.prefix(length).cata(
         s => (None, List((s, r.drop(length)))),
         (Some(ParseFailure(r, "any " + length + " chars")), Nil))
     }
 
-    def pos[A](p: Parser[A]): Parser[(A, Position)] = { r =>
+    def pos[A](p: PartialParser[A]): PartialParser[(A, Position)] = { r =>
       val before = r.pos
       p(r).map(_.map {
         case (a, r1) => ((a, before |+| r1.pos), r1)
       })
     }
 
-    def label[A](p: Parser[A], expected: => String) = { r =>
+    def label[A](p: PartialParser[A], expected: => String) = { r =>
       val (_, ps) = p(r)
       (if (ps.isEmpty) Some(ParseFailure(r, expected)) else None,
         ps)
     }
   }
 
-  def parser[A](syntax: Syntax[Parser] => Parser[A]): String => (ParseFailure \/ A) = {
-    val p = syntax(Syntax.ParserSyntax)
+  def parser[A](syntax: Syntax[PartialParser, A]): Parser[A] = {
+    val p = syntax(ParserSyntaxHandler)
 
     { s =>
       val r = new Source(s, 0)
@@ -212,7 +219,7 @@ object Syntax {
 
   type Printer[A] = A => Option[Cord]
 
-  val PrinterSyntax = new Syntax[Printer] {
+  val PrinterSyntaxHandler = new SyntaxHandler[Printer] {
     def map[A, B](p: Printer[A], iso: Iso[A, B]) =
       b => iso.unapp(b).flatMap(p)
 
@@ -233,6 +240,6 @@ object Syntax {
     def label[A](p: Printer[A], expected: => String) = p
   }
 
-  def printer[A](syntax: Syntax[Printer] => Printer[A]): A => Option[Cord] =
-    syntax(Syntax.PrinterSyntax)
+  def printer[A](syntax: Syntax[Printer, A]): Printer[A] =
+    syntax(PrinterSyntaxHandler)
 }

@@ -9,7 +9,7 @@ lazy val root = (project in file("."))
       "scala" -> Apache2_0("2015 - 2016", "Moss Prescott")),
     scalaVersion := "2.11.8",
     name := "invertible-syntax",
-    initialCommands in console := "import invertible._, Syntax._",
+    initialCommands in console := "import invertible._",
     libraryDependencies ++= Seq(
       "org.scalaz"  %% "scalaz-core" % "7.2.2",
       "com.chuusai" %% "shapeless"   % "2.3.0",

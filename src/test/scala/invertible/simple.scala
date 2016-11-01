@@ -60,9 +60,7 @@ object SimpleSyntax {
 
   // 6.4. Syntax descriptions
 
-  def expressionSyntax[P[_]](syntax: Syntax[P]): P[Expression] = {
-    import Syntax._
-    implicit val S = syntax
+  def expressionSyntax[P[_]]: Syntax[P, Expression] = { S =>
     import S._
 
     val keywords = List("ifzero", "else")
