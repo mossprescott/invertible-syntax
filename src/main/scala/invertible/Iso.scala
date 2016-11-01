@@ -70,6 +70,10 @@ object Iso {
     { case a => (a, ()) },
     { case (a, ()) => a })
 
+  def flatten[A, B, C] = partial[(A, (B, C)), (A, B, C)](
+    { case (a, (b, c)) => (a, b, c) },
+    { case (a, b, c) => (a, (b, c)) })
+
   def element[B](x: B) = Iso[Unit, B](
     _ => Some(x),
     b => if (x == b) Some(()) else None)

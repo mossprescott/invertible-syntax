@@ -28,38 +28,35 @@ object SimpleSyntax {
   import Iso._
 
   // 6.2 Abstract Syntax
+  object AST {
+    sealed trait Expression
+    case class Variable(name: String) extends Expression
+    case class Literal(value: Int) extends Expression
+    case class BinOp(left: Expression, op: Operator, right: Expression)
+      extends Expression
+    case class IfZero(x: Expression, zero: Expression, otherwise: Expression)
+      extends Expression
 
-  sealed trait Expression
-  case class Variable(name: String) extends Expression
-  case class Literal(value: Int) extends Expression
-  case class BinOp(left: Expression, op: Operator, right: Expression)
-    extends Expression
-  case class IfZero(x: Expression, zero: Expression, otherwise: Expression)
-    extends Expression
+    sealed trait Operator
+    case object AddOp extends Operator
+    case object MulOp extends Operator
+  }
+  import AST._
 
-  sealed trait Operator
-  case object AddOp extends Operator
-  case object MulOp extends Operator
-
-  // Note: in the paper, these are generated with `defineIsomorphisms`
-  val variable: Iso[String, Expression] = partial(
-    { case name => Variable(name) },
-    { case Variable(name) => name })
-  val literal: Iso[Int, Expression] = partial(
-    { case value => Literal(value) },
-    { case Literal(value) => value })
-  val binOp: Iso[(Expression, (Operator, Expression)), Expression] = partial(
-    { case (left, (op, right)) => BinOp(left, op, right) },
-    { case BinOp(left, op, right) => (left, (op, right)) })
-  val ifZero: Iso[((Expression, Expression), Expression), Expression] = partial(
-    { case ((x, zero), otherwise) => IfZero(x, zero, otherwise) },
-    { case IfZero(x, zero, otherwise) => ((x, zero), otherwise) })
-  val addOp: Iso[Unit, Operator] = partial(
-    { case () => AddOp },
-    { case AddOp => () })
-  val mulOp: Iso[Unit, Operator] = partial(
-    { case () => MulOp },
-    { case MulOp => () })
+  // In the paper, these are generated with `defineIsomorphisms`. Here, we use
+  // shapeless's Generic, which has to be in a separate scope from where the
+  // sealed trait is defined.
+  object Constr {
+    val variable = gen.iso1[Expression, Variable].apply
+    val literal = gen.iso1[Expression, Literal].apply
+    val binOp: Iso[(Expression, (Operator, Expression)), Expression] =
+      gen.iso3[Expression, BinOp].apply <<< flatten
+    val ifZero: Iso[((Expression, Expression), Expression), Expression] =
+      gen.iso3[Expression, IfZero].apply <<< flatten <<< associate.inverse
+    val addOp = element[Operator](AddOp)
+    val mulOp = element[Operator](MulOp)
+  }
+  import Constr._
 
   // 6.4. Syntax descriptions
 
@@ -121,7 +118,7 @@ object SimpleSyntax {
 import org.specs2.mutable._
 
 class SimpleSyntaxSpec extends Specification {
-  import SimpleSyntax._
+  import SimpleSyntax._, AST._
   import scalaz._
 
   "Parser" should {
