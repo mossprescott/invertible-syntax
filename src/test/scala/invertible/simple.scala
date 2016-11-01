@@ -60,7 +60,7 @@ object SimpleSyntax {
 
   // 6.4. Syntax descriptions
 
-  def expressionSyntax[F[_]](syntax: Syntax[F]): F[Expression] = {
+  def expressionSyntax[P[_]](syntax: Syntax[P]): P[Expression] = {
     import Syntax._
     implicit val S = syntax
     import S._
@@ -76,7 +76,7 @@ object SimpleSyntax {
     val integer =
       digit.many1 ^ chars >>> total[String, Int](_.toInt, _.toString)
 
-    val parens: F[Expression] => F[Expression] =
+    val parens: P[Expression] => P[Expression] =
       _.between(text("("), text(")"))
 
     val ops = text("*") ^ mulOp |
@@ -105,7 +105,7 @@ object SimpleSyntax {
     def exp1 = chainl1(exp0, spacedOps, binOpPrio(1))
     def exp2 = chainl1(exp1, spacedOps, binOpPrio(2))
 
-    lazy val expression: F[Expression] = exp2
+    lazy val expression: P[Expression] = exp2
 
     expression
   }
