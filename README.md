@@ -2,7 +2,7 @@
 
 [![Build Status](https://travis-ci.org/mossprescott/invertible-syntax.svg)](https://travis-ci.org/mossprescott/invertible-syntax)
 
-With Invertible Syntax, you write a description of your language similar to parser combinators, and then can you use that same description to parse or to pretty-print. The results are guaranteed to be (partially) isomorphic by construction.
+With Invertible Syntax, you write a description of your language similar to what you would write with parser combinators, and then can you use that same description to parse or to pretty-print. The results are guaranteed to be isomorphic by construction.
 
 Inspired by Haskell's [invertible-syntax](http://hackage.haskell.org/package/invertible-syntax) and [partial-isomorphisms](http://hackage.haskell.org/package/partial-isomorphisms).
 
@@ -45,6 +45,6 @@ res17: Option[scalaz.Cord] = Some(1 20 300)
 
 ### Examples
 
-A port of the simple parser presented in the paper is in [simple.scala](src/test/scala/invertible/simple.scala).
+A port of the simple parser presented in [Tillmann Rendel and Klaus Ostermann. Invertible syntax descriptions: Unifying parsing and pretty printing. Haskell symposium, 2010](http://www.informatik.uni-marburg.de/~rendel/unparse/) is in [simple.scala](src/test/scala/invertible/simple.scala).
 
 A more complicated example parser, handling a richer language and providing source locations, is in [example.scala](src/test/scala/invertible/example.scala).
