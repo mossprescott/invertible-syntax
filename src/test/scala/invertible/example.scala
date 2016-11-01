@@ -18,8 +18,6 @@ package invertible
 
 import scalaz._, Scalaz._
 
-import invertible._
-
 /** Dummy functor-ized AST representing a subset of JavaScript expressions.
   * Using a functor for the AST allows the syntax to decorate the nodes with
   * the source location of each node.
@@ -75,7 +73,7 @@ object ExprConstructors {
   def exprBinOpL[A] = toLeftAssoc.inverse >>> exprBinOp[A]
 
   private def toLeftAssoc[O, A]: Iso[(O, A, A), (A, (O, A))] =
-    Iso.iso({ case (op, l, r) => (l, (op, r)) }, { case (l, (op, r)) => (op, l, r) })
+    Iso.partial({ case (op, l, r) => (l, (op, r)) }, { case (l, (op, r)) => (op, l, r) })
 }
 
 object ExprSyntax {
@@ -83,11 +81,11 @@ object ExprSyntax {
   import Syntax._
   import ExprConstructors._
 
-  def fix[F[_], A] = Iso.total[(F[Cofree[F, A]], A), Cofree[F, A]](
+  def fix[P[_], A] = Iso.total[(P[Cofree[P, A]], A), Cofree[P, A]](
     { case (f, a) => Cofree(a, f) },
     v => (v.tail, v.head))
 
-  def fixUp[F[_]: Foldable, A: Semigroup] = Iso[F[Cofree[F, A]], Cofree[F, A]](
+  def fixUp[P[_]: Foldable, A: Semigroup] = Iso[P[Cofree[P, A]], Cofree[P, A]](
     f => f.foldMap1Opt(_.head).map(Cofree(_, f)),
     _.tail.some)
 
@@ -96,8 +94,8 @@ object ExprSyntax {
   // when un-parsing, but of course we don't care, so just using
   // `null` here. A cleaner approach would combine uwrapping and
   // re-wrapping so that the actual Position would be available.
-  def unPos[F[_]](p: F[T])(implicit S: Syntax[F]) =
-    unit.inverse <> (second(ignore[Position](null)) <> (fix.inverse <> p))
+  def unPos[P[_]](p: P[Cofree[Expr, Position]])(implicit S: Syntax[P]): P[Expr[Cofree[Expr, Position]]] =
+    p ^ fix.inverse ^ second(ignore[Position](null)) ^ unit.inverse
 
   /** Faster version of chainl1, which parses any set of left-associative
     * infix operators and deals with recording source locations in Cofree.
@@ -105,15 +103,15 @@ object ExprSyntax {
     * access to the actual operator values, so it can look them up when
     * unparsing (so it isn't a true combinator).
     */
-  def chainlp[F[_], G[_], A](
-      term: F[Cofree[G, Position]],
+  def chainlp[P[_], F[_], A](
+      term: P[Cofree[F, Position]],
       ops: List[A],
-      opf: A => F[A],
-      cons: Iso[(Cofree[G, Position], (A, Cofree[G, Position])), G[Cofree[G, Position]]])(
-      implicit S: Syntax[F]) = {
-    val opP = ops.map(opf).reduce(_ <|> _)
+      opf: A => P[A],
+      cons: Iso[(Cofree[F, Position], (A, Cofree[F, Position])), F[Cofree[F, Position]]])(
+      implicit S: Syntax[P]) = {
+    val opP = ops.map(opf).reduce(_ | _)
 
-    val flatten = Iso[(Cofree[G, Position], List[(A, Cofree[G, Position])]), Cofree[G, Position]](
+    val flatten = Iso[(Cofree[F, Position], List[(A, Cofree[F, Position])]), Cofree[F, Position]](
       {
         case (x1, ts) =>
           ts.foldLeftM(x1) {
@@ -125,7 +123,7 @@ object ExprSyntax {
           }
       },
       x => {
-        def loop(x: Cofree[G, Position]): Option[(Cofree[G, Position], List[(A, Cofree[G, Position])])] =
+        def loop(x: Cofree[F, Position]): Option[(Cofree[F, Position], List[(A, Cofree[F, Position])])] =
           cons.unapp(x.tail).flatMap { case (l, (o, r)) =>
             if (ops contains o) {
               loop(l).map { case (lh, lt) =>
@@ -138,13 +136,12 @@ object ExprSyntax {
         loop(x)
       })
 
-    flatten <> (term <*> many(opP <*> term))
+    (term * (opP * term).many) ^ flatten
   }
 
-  type P[F[_]] = Cofree[F, Position]
-  type T = P[Expr]
+  type T = Cofree[Expr, Position]
 
-  def exprSyntax[F[_]](syntax: Syntax[F]): F[Cofree[Expr, Position]] = {
+  def exprSyntax[P[_]](syntax: Syntax[P]): P[Cofree[Expr, Position]] = {
     import Iso._
     import Syntax._
     import ExprConstructors._
@@ -152,25 +149,24 @@ object ExprSyntax {
 
     implicit val S = syntax
 
-    def parens(f: F[T]): F[T] = {
-      val p = text("(") *> f <* text(")")
-      // recapture the position to include the parens, which don't get a node of their own.
-      fix <> S.pos(unPos(p))
-    }
+    def node(p: P[Expr[T]]): P[T] = S.pos(p) ^ fix
 
-    def nullP  = fix <> S.pos(exprNull[T] <> text("null"))
-    def trueP  = fix <> S.pos((element(true) >>> exprBool[T]) <> text("true"))
-    def falseP = fix <> S.pos((element(false) >>> exprBool[T]) <> text("false"))
+    // NB: recapture the position to include the parens, which don't get a node of their own.
+    def parens(f: P[T]): P[T] = node(text("(") *> unPos(f) <* text(")"))
+
+    def nullP  = node(text("null") ^ exprNull[T])
+    def trueP  = node(text("true") ^ (element(true) >>> exprBool[T]))
+    def falseP = node(text("false") ^ (element(false) >>> exprBool[T]))
 
     def numP = {
       val toInt = Iso.total[List[Char], Int](
         _.mkString.toInt,
         _.toString.toList)
-      fix <> S.pos((toInt >>> exprNum[T]) <> many1(digit))
+      node(digit.many1 ^ (toInt >>> exprNum[T]))
     }
 
-    def infixl(f0: F[T], ops: BinaryOperator*): F[T] = {
-      def opf(op: BinaryOperator) = optSpace *> (element(op) <> text(op.js)) <* optSpace
+    def infixl(f0: P[T], ops: BinaryOperator*): P[T] = {
+      def opf(op: BinaryOperator) = optSpace *> (text(op.js) ^ element(op)) <* optSpace
 
       chainlp(f0, ops.toList, opf, exprBinOpL)
 
@@ -181,7 +177,7 @@ object ExprSyntax {
       // chainl1(f0, fOps, exprBinOp2 >>> fixUp)
     }
 
-    def infix0 = nullP <|> trueP <|> falseP <|> numP <|>
+    def infix0 = nullP | trueP | falseP | numP |
         parens(skipSpace *> infix11 <* skipSpace)
     def infix1  = infixl(infix0, Mult, Div, Mod)
     def infix2  = infixl(infix1, Add, Sub)
@@ -194,7 +190,7 @@ object ExprSyntax {
     def infix9  = infixl(infix8, And)
     def infix10 = infixl(infix9, Or)
     // omitted: all assignment ops: "=", "*=", "/=", "%=", "+=", "-=", "<<=", ">>=", ">>>=", "&=", "^=", "|="
-    lazy val infix11: F[T] = infix10
+    lazy val infix11: P[T] = infix10
 
     def js = skipSpace *> infix11 <* skipSpace
 
