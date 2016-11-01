@@ -94,8 +94,10 @@ object ExprSyntax {
   // when un-parsing, but of course we don't care, so just using
   // `null` here. A cleaner approach would combine uwrapping and
   // re-wrapping so that the actual Position would be available.
-  def unPos[P[_]](p: P[Cofree[Expr, Position]])(implicit S: Syntax[P]): P[Expr[Cofree[Expr, Position]]] =
+  def unPos[P[_]](p: P[Cofree[Expr, Position]]): Syntax[P, Expr[Cofree[Expr, Position]]] = { S =>
+    import S._
     p ^ fix.inverse ^ second(ignore[Position](null)) ^ unit.inverse
+  }
 
   /** Faster version of chainl1, which parses any set of left-associative
     * infix operators and deals with recording source locations in Cofree.
@@ -107,8 +109,10 @@ object ExprSyntax {
       term: P[Cofree[F, Position]],
       ops: List[A],
       opf: A => P[A],
-      cons: Iso[(Cofree[F, Position], (A, Cofree[F, Position])), F[Cofree[F, Position]]])(
-      implicit S: Syntax[P]) = {
+      cons: Iso[(Cofree[F, Position], (A, Cofree[F, Position])), F[Cofree[F, Position]]])
+      : Syntax[P, Cofree[F, Position]] = { S =>
+    import S._
+
     val opP = ops.map(opf).reduce(_ | _)
 
     val flatten = Iso[(Cofree[F, Position], List[(A, Cofree[F, Position])]), Cofree[F, Position]](
@@ -141,18 +145,16 @@ object ExprSyntax {
 
   type T = Cofree[Expr, Position]
 
-  def exprSyntax[P[_]](syntax: Syntax[P]): P[Cofree[Expr, Position]] = {
+  def exprSyntax[P[_]]: Syntax[P, Cofree[Expr, Position]] = { S =>
+    import S._
     import Iso._
-    import Syntax._
     import ExprConstructors._
     import Expr._
 
-    implicit val S = syntax
-
-    def node(p: P[Expr[T]]): P[T] = S.pos(p) ^ fix
+    def node(p: P[Expr[T]]): P[T] = pos(p) ^ fix
 
     // NB: recapture the position to include the parens, which don't get a node of their own.
-    def parens(f: P[T]): P[T] = node(text("(") *> unPos(f) <* text(")"))
+    def parens(f: P[T]): P[T] = node(text("(") *> unPos(f)(S) <* text(")"))
 
     def nullP  = node(text("null") ^ exprNull[T])
     def trueP  = node(text("true") ^ (element(true) >>> exprBool[T]))
@@ -168,7 +170,7 @@ object ExprSyntax {
     def infixl(f0: P[T], ops: BinaryOperator*): P[T] = {
       def opf(op: BinaryOperator) = optSpace *> (text(op.js) ^ element(op)) <* optSpace
 
-      chainlp(f0, ops.toList, opf, exprBinOpL)
+      chainlp(f0, ops.toList, opf, exprBinOpL[Cofree[Expr, Position]])(S)
 
       // NB: this parses fine, but fails to print because fOps does not handle _all_
       // of the operators. But that requirement is what makes it slow, I think.
