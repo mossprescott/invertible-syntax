@@ -43,7 +43,7 @@ object gen {
           sel: ops.coproduct.Selector[P, T]
           ): Iso[Unit, S] =
         Iso(
-          a => Some(genT.from(HNil)),
+          _ => Some(genT.from(HNil)),
           s => genS.to(s).select[T].map(_ => ()))
     }
   }

@@ -18,8 +18,6 @@ package invertible
 
 import scalaz._, Scalaz._
 
-import invertible._
-
 /** Dummy functor-ized AST representing a subset of JavaScript expressions.
   * Using a functor for the AST allows the syntax to decorate the nodes with
   * the source location of each node.
