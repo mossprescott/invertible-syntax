@@ -42,22 +42,22 @@ object SimpleSyntax {
   case object MulOp extends Operator
 
   // Note: in the paper, these are generated with `defineIsomorphisms`
-  val variable: Iso[String, Expression] = iso(
+  val variable: Iso[String, Expression] = partial(
     { case name => Variable(name) },
     { case Variable(name) => name })
-  val literal: Iso[Int, Expression] = iso(
+  val literal: Iso[Int, Expression] = partial(
     { case value => Literal(value) },
     { case Literal(value) => value })
-  val binOp: Iso[(Expression, (Operator, Expression)), Expression] = iso(
+  val binOp: Iso[(Expression, (Operator, Expression)), Expression] = partial(
     { case (left, (op, right)) => BinOp(left, op, right) },
     { case BinOp(left, op, right) => (left, (op, right)) })
-  val ifZero: Iso[((Expression, Expression), Expression), Expression] = iso(
+  val ifZero: Iso[((Expression, Expression), Expression), Expression] = partial(
     { case ((x, zero), otherwise) => IfZero(x, zero, otherwise) },
     { case IfZero(x, zero, otherwise) => ((x, zero), otherwise) })
-  val addOp: Iso[Unit, Operator] = iso(
+  val addOp: Iso[Unit, Operator] = partial(
     { case () => AddOp },
     { case AddOp => () })
-  val mulOp: Iso[Unit, Operator] = iso(
+  val mulOp: Iso[Unit, Operator] = partial(
     { case () => MulOp },
     { case MulOp => () })
 

@@ -75,7 +75,7 @@ object ExprConstructors {
   def exprBinOpL[A] = toLeftAssoc.inverse >>> exprBinOp[A]
 
   private def toLeftAssoc[O, A]: Iso[(O, A, A), (A, (O, A))] =
-    Iso.iso({ case (op, l, r) => (l, (op, r)) }, { case (l, (op, r)) => (op, l, r) })
+    Iso.partial({ case (op, l, r) => (l, (op, r)) }, { case (l, (op, r)) => (op, l, r) })
 }
 
 object ExprSyntax {

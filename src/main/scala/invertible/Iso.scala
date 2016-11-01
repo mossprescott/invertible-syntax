@@ -18,7 +18,7 @@ package invertible
 
 import scalaz._, Scalaz._
 
-final case class Iso[A, B] (app: A => Option[B], unapp: B => Option[A]) {
+final case class Iso[A, B](app: A => Option[B], unapp: B => Option[A]) {
   def compose[C](that: Iso[C, A]) = Iso[C, B](
     c => that.app(c).flatMap(app),
     b => unapp(b).flatMap(that.unapp))
@@ -38,16 +38,19 @@ final case class Iso[A, B] (app: A => Option[B], unapp: B => Option[A]) {
   def inverse: Iso[B, A] = Iso(unapp, app)
 
   def ***[A2, B2](that: Iso[A2, B2]): Iso[(A, A2), (B, B2)] = Iso(
-    { case (a, a2) => (this.app(a) |@| that.app(a2))(_ -> _) },
-    { case (b, b2) => (this.unapp(b) |@| that.unapp(b2))(_ -> _) })
+    { case (a, a2) => (this.app(a) |@| that.app(a2)).tupled },
+    { case (b, b2) => (this.unapp(b) |@| that.unapp(b2)).tupled })
 }
 
 object Iso {
-  def total[A, B](fa: A => B, fb: B => A): Iso[A, B] = Iso(a => Some(fa(a)), b => Some(fb(b)))
+  def total[A, B](fa: A => B, fb: B => A): Iso[A, B] =
+    Iso(a => Some(fa(a)), b => Some(fb(b)))
 
-  def iso[A, B](pa: PartialFunction[A, B], pb: PartialFunction[B, A]): Iso[A, B] = Iso(pa.lift, pb.lift)
+  def partial[A, B](pa: PartialFunction[A, B], pb: PartialFunction[B, A]): Iso[A, B] =
+    Iso(pa.lift, pb.lift)
 
-  def id[A] = Iso[A, A](Some.apply, Some.apply)
+  def id[A]: Iso[A, A] =
+    Iso(Some.apply, Some.apply)
 
   // Combinators:
 
@@ -55,15 +58,15 @@ object Iso {
 
   // TODO: several more combinators.
 
-  def associate[A, B, C] = Iso.iso[(A, (B, C)), ((A, B), C)](
+  def associate[A, B, C] = partial[(A, (B, C)), ((A, B), C)](
     { case (a, (b, c)) => ((a, b), c) },
     { case ((a, b), c) => (a, (b, c)) })
 
-  def commute[A, B] = Iso.iso[(A, B), (B, A)](
+  def commute[A, B] = partial[(A, B), (B, A)](
     { case (a, b) => (b, a) },
     { case (b, a) => (a, b) })
 
-  def unit[A] = Iso.iso[A, (A, Unit)](
+  def unit[A] = partial[A, (A, Unit)](
     { case a => (a, ()) },
     { case (a, ()) => a })
 
@@ -86,45 +89,41 @@ object Iso {
 
   def iterate[A](step: Iso[A, A]): Iso[A, A] = {
     @annotation.tailrec
-    def driver(step: A => Option[A], state: A): A = step(state) match {
-      case Some(state1) => driver(step, state1)
-      case None => state
-    }
+    def driver(step: A => Option[A], state: A): A =
+      step(state) match {
+        case Some(state1) => driver(step, state1)
+        case None => state
+      }
     Iso[A, A](
       a => Some(driver(step.app, a)),
       a => Some(driver(step.unapp, a)))
   }
 
-  // A gross hack for subtyping:
-  // def widen[A: Manifest, B >: A] = Iso[A, B](
-  //   Some.apply,
-  //   b => if (manifest[A].runtimeClass.isAssignableFrom(b.getClass)) Some(b.asInstanceOf[A]) else None)
-
   // Derived:
 
   def foldl[A, B](iso: Iso[(A, B), A]): Iso[(A, List[B]), A] = {
     def step: Iso[(A, List[B]), (A, List[B])] = {
-      val i1: Iso[(A, List[B]), (A, (B, List[B]))] = id *** Iso.cons[B].inverse
-      val i2: Iso[(A, (B, List[B])), ((A, B), List[B])] = Iso.associate
-      val i3: Iso[((A, B), List[B]), (A, List[B])] = iso *** id
-      i1 >>> i2 >>> i3
+      val first: Iso[(A, List[B]), (A, (B, List[B]))] = id *** cons[B].inverse
+      val tuple: Iso[(A, (B, List[B])), ((A, B), List[B])] = associate
+      val app: Iso[((A, B), List[B]), (A, List[B])] = iso *** id
+      first >>> tuple >>> app
     }
-    Iso.iterate(step) >>> (id *** Iso.nil.inverse) >>> Iso.unit.inverse
+    iterate(step) >>> (id *** nil.inverse) >>> unit.inverse
   }
 
 
   // Constructors:
 
-  def nil[A] = Iso.iso[Unit, List[A]](
+  def nil[A] = partial[Unit, List[A]](
     { case () => Nil },
     { case Nil => () })
-  def cons[A] = Iso.iso[(A, List[A]), List[A]](
+  def cons[A] = partial[(A, List[A]), List[A]](
     { case (x, xs) => x :: xs },
     { case x :: xs => (x, xs) })
-  def listCases[A] = Iso.iso[Unit \/ (A, List[A]), List[A]](
+  def listCases[A] = partial[Unit \/ (A, List[A]), List[A]](
     { case -\/(()) => Nil;     case \/-((x, xs)) => x :: xs },
     { case Nil     => -\/(()); case x :: xs      => \/-((x, xs)) })
-  val chars = Iso.total[List[Char], String](_.mkString, _.toList)
+  val chars = total[List[Char], String](_.mkString, _.toList)
   val int = Iso[String, BigInt](s => \/.fromTryCatchNonFatal(BigInt(s)).toOption, _.toString.some)
   def left[A, B]  = Iso[A, A \/ B](a => Some(-\/(a)), _.swap.toOption)
   def right[A, B] = Iso[B, A \/ B](b => Some(\/-(b)), _.toOption)
