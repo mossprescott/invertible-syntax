@@ -8,40 +8,37 @@ Inspired by Haskell's [invertible-syntax](http://hackage.haskell.org/package/inv
 
 ## Getting Started
 
-Define your syntax using the combinators of `Syntax[P]`. Accepting the actual instance as a parameter allows the same function to be used to define a parser or pretty-printer, depending on what instance it is supplied with:
+Define your syntax by implementing `Syntax[A]` for your desired type. The `apply` method will be provided with a type for which the `Transcriber` typelass is defined, and uses the primitives and combinators defined in the `Syntax` companion to construct a `P[A]`.
 
 ```
 scala> import invertible._, Syntax._
 
-scala> def ints[P[_]](implicit S: Syntax[P]) = int.sepBy1(sepSpace)
-ints: [P[_]](implicit S: invertible.Syntax[P])P[List[BigInt]]
-
+scala> val ints = new Syntax[List[BigInt]] {
+     |   def apply[P[_]: Transcriber] = int sepBy1 sepSpace
+     | }
+ints: invertible.Syntax[List[BigInt]] = $anon$1@506cb8df
 ```
 
-To get a parser, hand it to `Syntax.parser`. If the parser fails, you get a nice error message identifying the location of the problem:
+To parse input text, simply call `parse`. If the parser fails, you get a nice error message identifying the location of the problem:
 
 ```
-scala> val p = parser(ints(_))
-p: String => scalaz.\/[invertible.ParseFailure,List[BigInt]] = <function1>
+scala> ints.parse("1 20 30")
+res0: scalaz.\/[invertible.ParseFailure,List[BigInt]] = \/-(List(1, 20, 30))
 
-scala> p("1 20 300")
-res12: scalaz.\/[invertible.ParseFailure,List[BigInt]] = \/-(List(1, 20, 300))
-
-scala> p("1 abc").leftMap(println)
+scala> ints.parse("1 abc").leftMap(println)
 expected: " " or digit; found: 'a'
 1 abc
   ^
 ```
 
-To get a printer, use `Syntax.printer`:
+To print:
 
 ```
-scala> val pp = printer(ints(_))
-pp: List[BigInt] => Option[scalaz.Cord] = <function1>
-
-scala> pp(List[BigInt](1, 20, 300))
-res17: Option[scalaz.Cord] = Some(1 20 300)
+scala> ints.print(List(1, 20, 300))
+res2: Option[String] = Some(1 20 300)
 ```
+
+Note: in a simple syntax like this, printing never fails because the syntax can represent every possible value. But it’s not uncommon for the syntax’s result type to include values that can’t be represented in the textual form. E.g. variable names may be arbitrary `String`s according to the AST, but only alphanumeric names are actually parsed/printed. In that case, the printer will be unable to map the value to a valid text, and will return `None`.
 
 ### Examples
 
