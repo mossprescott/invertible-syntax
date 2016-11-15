@@ -65,13 +65,16 @@ abstract class Syntax[A] {
 object Syntax {
   import Iso._
 
-  def text[A, P[_]](s: String)(implicit P: Transcriber[P]): P[Unit] =
-    if (s == "") P.pure(())
-    else
-      (P.tokenStr(s.length) ^ element(s).inverse).label("\"" + s + "\"")
+  def pure[P[_], A](a: A)(implicit P: Transcriber[P]): P[A] =
+    P.pure(a)
 
   def char[P[_]](implicit P: Transcriber[P]): P[Char] =
     P.token
+
+  def text[A, P[_]](s: String)(implicit P: Transcriber[P]): P[Unit] =
+    if (s == "") pure(())
+    else
+      (P.tokenStr(s.length) ^ element(s).inverse).label("\"" + s + "\"")
 
   def digit[P[_]](implicit P: Transcriber[P]): P[Char] =
     (P.token ^ subset(_.isDigit)).label("digit")
@@ -146,7 +149,7 @@ object Syntax {
 
 
     def many: P[List[A]] =
-      (P.pure(()) ^ Iso.nil[A]) | p.many1
+      (pure(()) ^ Iso.nil[A]) | p.many1
 
     // TODO: use NonEmptyList?
     def many1: P[List[A]] =
@@ -158,7 +161,7 @@ object Syntax {
 
     def optional: P[Option[A]] =
       p ^ some[A] |
-      text("") ^ none[A]
+      pure(()) ^ none[A]
 
     def between(l: P[Unit], r: P[Unit]): P[A] =
       l *> p <* r
