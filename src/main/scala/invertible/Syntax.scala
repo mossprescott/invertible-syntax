@@ -21,7 +21,7 @@ import Leibniz.===
 
 /** Typeclass for constructing "primitive" parser/printers. */
 trait Transcriber[P[_]] extends IsoFunctor[P] with ProductFunctor[P] with Alternative[P] {
-  /** A value that does not appear in the text at all. */
+  /** Synthesize(discard) a value that does not appear in the text at all. */
   def pure[A](a: A): P[A]
 
   /** Pull(push) a single char from(to) the text. */
@@ -68,13 +68,16 @@ object Syntax {
   def text[A, P[_]](s: String)(implicit P: Transcriber[P]): P[Unit] =
     if (s == "") P.pure(())
     else
-      P.label(P.tokenStr(s.length) ^ element(s).inverse, "\"" + s + "\"")
+      (P.tokenStr(s.length) ^ element(s).inverse).label("\"" + s + "\"")
+
+  def char[P[_]](implicit P: Transcriber[P]): P[Char] =
+    P.token
 
   def digit[P[_]](implicit P: Transcriber[P]): P[Char] =
-    P.label(P.token ^ subset[Char](_.isDigit), "digit")
+    (P.token ^ subset(_.isDigit)).label("digit")
 
   def letter[P[_]](implicit P: Transcriber[P]): P[Char] =
-    P.label(P.token ^ subset[Char](_.isLetter), "letter")
+    (P.token ^ subset[Char](_.isLetter)).label("letter")
 
   def int[P[_]: Transcriber]: P[BigInt] =
     digit[P].many ^ chars ^ Iso.int
@@ -121,6 +124,9 @@ object Syntax {
 
     /** Alternatives (aka `or`). */
     def |(q: => P[A]) = P.or(p, q)
+
+    def pos: P[(A, Position)] = P.pos(p)
+    def label(expected: => String): P[A] = P.label(p, expected)
 
     /** Sequence, ignoring the result on the right (which must be Unit, so as
       * not to lose information when printing). */

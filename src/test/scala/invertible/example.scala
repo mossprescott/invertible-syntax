@@ -147,7 +147,7 @@ object ExprSyntax {
       import ExprConstructors._
       import Expr._
 
-      def node(p: P[Expr[T]]): P[T] = implicitly[Transcriber[P]].pos(p) ^ fix
+      def node(p: P[Expr[T]]): P[T] = p.pos ^ fix
 
       // NB: recapture the position to include the parens, which don't get a node of their own.
       def parens(f: P[T]): P[T] = node(text("(") *> unPos(f) <* text(")"))
