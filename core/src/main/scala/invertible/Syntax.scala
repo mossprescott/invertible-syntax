@@ -155,6 +155,10 @@ object Syntax {
     def many1: P[List[A]] =
       (p * p.many) ^ Iso.cons
 
+    def sepBy(sep: P[Unit]): P[List[A]] =
+      (pure(()) ^ Iso.nil[A]) |
+        (p sepBy1 sep)
+
     // TODO: use NonEmptyList?
     def sepBy1(sep: P[Unit]): P[List[A]] =
       p * (sep *> p).many ^ cons

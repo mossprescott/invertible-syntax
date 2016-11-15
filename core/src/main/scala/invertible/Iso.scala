@@ -16,6 +16,7 @@
 
 package invertible
 
+import scala.collection.immutable.ListMap
 import scalaz._, Scalaz._
 
 final case class Iso[A, B](app: A => Option[B], unapp: B => Option[A]) {
@@ -124,15 +125,14 @@ object Iso {
   def cons[A] = partial[(A, List[A]), List[A]](
     { case (x, xs) => x :: xs },
     { case x :: xs => (x, xs) })
-  def listCases[A] = partial[Unit \/ (A, List[A]), List[A]](
-    { case -\/(()) => Nil;     case \/-((x, xs)) => x :: xs },
-    { case Nil     => -\/(()); case x :: xs      => \/-((x, xs)) })
   val chars = total[List[Char], String](_.mkString, _.toList)
   val int = Iso[String, BigInt](s => \/.fromTryCatchNonFatal(BigInt(s)).toOption, _.toString.some)
   def left[A, B]  = Iso[A, A \/ B](a => Some(-\/(a)), _.swap.toOption)
   def right[A, B] = Iso[B, A \/ B](b => Some(\/-(b)), _.toOption)
   def none[A] = Iso[Unit, Option[A]](_ => None, _.fold[Option[Unit]](Some(()))(_ => None))
   def some[A] = Iso[A, Option[A]](a => Some(Some(a)), identity)
+  def listMap[A,B] = Iso.total[List[(A,B)], ListMap[A,B]](ListMap(_: _*), _.toList)
+  def vector[A] = Iso.total[List[A], Vector[A]](_.toVector, _.toList)
 }
 
 trait IsoFunctor[F[_]] {

@@ -53,7 +53,8 @@ lazy val examples = project
       // "org.scalaz"  %% "scalaz-core" % "7.2.7",
       // "com.chuusai" %% "shapeless"   % "2.3.2",
       // "com.slamdata" % "matryoshka-core_2.11" % "0.11.1",
-      "org.specs2"  %% "specs2-core" % "3.8.6" % "test"
+      "org.specs2"    %% "specs2-core"   % "3.8.6" % "test",
+      "org.typelevel" %% "scalaz-specs2" % "0.5.0" % "test"
     )
   ))
   .enablePlugins(AutomateHeaderPlugin)
