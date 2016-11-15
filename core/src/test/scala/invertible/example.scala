@@ -79,13 +79,12 @@ object ExprConstructors {
 object ExprSyntax {
   import Iso._
   import Syntax._
-  import ExprConstructors._
 
-  def fix[P[_], A] = Iso.total[(P[Cofree[P, A]], A), Cofree[P, A]](
+  def fix[F[_], A] = Iso.total[(F[Cofree[F, A]], A), Cofree[F, A]](
     { case (f, a) => Cofree(a, f) },
     v => (v.tail, v.head))
 
-  def fixUp[P[_]: Foldable, A: Semigroup] = Iso[P[Cofree[P, A]], Cofree[P, A]](
+  def fixUp[F[_]: Foldable, A: Semigroup] = Iso[F[Cofree[F, A]], Cofree[F, A]](
     f => f.foldMap1Opt(_.head).map(Cofree(_, f)),
     _.tail.some)
 
@@ -257,7 +256,6 @@ object Test extends App {
 import org.specs2.mutable._
 
 class ExprSyntaxSpecs extends Specification {
-  import Syntax._
   import Expr._
   import ExprSyntax._
 
