@@ -112,35 +112,44 @@ class JsonSpec extends Specification with org.specs2.scalaz.ScalazMatchers {
           sys.error("no files found")
       }).flatten
       // _=println(names)
-      tests = names.take(1000) map { n =>
-        val url = downloadUrl + n.replace("#", "%23")
-        for {
-          // _ <- Task.delay { println(url) }
-          str <- fromUrl(url).flatMap(_.cata(
-            Task.now,
-            Task.fail(new RuntimeException("test not loaded: " + n))))
-        } yield {
-          if (n == "n_structure_100000_opening_arrays.json" ||
-              n == "i_structure_500_nested_arrays.json" ||
-              n == "n_structure_open_array_object.json")
-            n in skipped("overflows stack")
-          else
-            n in {
-              val parsed = Json.syntax.parse(str)
-              // println(str + "; " + parsed)
-              if (n startsWith "y_")
-                parsed must beRightDisjunction
-              else if (n startsWith "n_")
-                parsed must beLeftDisjunction
-              else if (n startsWith "i_")
-                ok
-              else ok
-            }
-        }
+      tests = names map { n =>
+        if (n ≟ "n_structure_100000_opening_arrays.json" ||
+            n ≟ "i_structure_500_nested_arrays.json" ||
+            n ≟ "n_structure_open_array_object.json")
+          n in skipped("overflows stack")
+        else if (n ≟ "y_number_double_close_to_zero.json")
+          n in skipped("parsed but not printed properly")
+        else
+          n in {
+            val url = downloadUrl + n.replace("#", "%23")
+            fromUrl(url)
+              .flatMap(_.cata(
+                Task.now,
+                Task.fail(new RuntimeException("test not loaded: " + n))))
+              .map { str =>
+                val parsed = Json.syntax.parse(str)
+
+                val reparsed =
+                  parsed.leftMap(_.toString)
+                    .flatMap(js => Json.syntax.print(js) \/> "could not print")
+                    .flatMap(str => Json.syntax.parse(str).leftMap(_.toString))
+
+                // println(str + "; " + parsed)
+                if (n startsWith "y_")
+                  (parsed must beRightDisjunction) and
+                    (reparsed must_== parsed)
+                else if (n startsWith "n_")
+                  parsed must beLeftDisjunction
+                else if (n startsWith "i_")
+                  ok
+                else ok
+              }
+              .unsafePerformSync
+          }
       }
     } yield tests
 
-    tests.unsafePerformSync.map(_.unsafePerformSync)
+    tests.unsafePerformSync
 
     // what can I say? specs2 is mysterious
     "dummy" >> ok
