@@ -94,7 +94,7 @@ object ExprSyntax {
   // when un-parsing, but of course we don't care, so just using
   // `null` here. A cleaner approach would combine uwrapping and
   // re-wrapping so that the actual Position would be available.
-  def unPos[P[_]](p: P[Cofree[Expr, Position]])(implicit S: Syntax[P]): P[Expr[Cofree[Expr, Position]]] =
+  def unPos[P[_]: Transcriber](p: P[Cofree[Expr, Position]]): P[Expr[Cofree[Expr, Position]]] =
     p ^ fix.inverse ^ second(ignore[Position](null)) ^ unit.inverse
 
   /** Faster version of chainl1, which parses any set of left-associative
@@ -103,12 +103,11 @@ object ExprSyntax {
     * access to the actual operator values, so it can look them up when
     * unparsing (so it isn't a true combinator).
     */
-  def chainlp[P[_], F[_], A](
+  def chainlp[P[_]: Transcriber, F[_], A](
       term: P[Cofree[F, Position]],
       ops: List[A],
       opf: A => P[A],
-      cons: Iso[(Cofree[F, Position], (A, Cofree[F, Position])), F[Cofree[F, Position]]])(
-      implicit S: Syntax[P]) = {
+      cons: Iso[(Cofree[F, Position], (A, Cofree[F, Position])), F[Cofree[F, Position]]]) = {
     val opP = ops.map(opf).reduce(_ | _)
 
     val flatten = Iso[(Cofree[F, Position], List[(A, Cofree[F, Position])]), Cofree[F, Position]](
@@ -141,64 +140,61 @@ object ExprSyntax {
 
   type T = Cofree[Expr, Position]
 
-  def exprSyntax[P[_]](syntax: Syntax[P]): P[Cofree[Expr, Position]] = {
-    import Iso._
-    import Syntax._
-    import ExprConstructors._
-    import Expr._
+  val exprSyntax = new Syntax[Cofree[Expr, Position]] {
+    def apply[P[_]: Transcriber]: P[Cofree[Expr, Position]] = {
+      import Iso._
+      import Syntax._
+      import ExprConstructors._
+      import Expr._
 
-    implicit val S = syntax
+      def node(p: P[Expr[T]]): P[T] = p.pos ^ fix
 
-    def node(p: P[Expr[T]]): P[T] = S.pos(p) ^ fix
+      // NB: recapture the position to include the parens, which don't get a node of their own.
+      def parens(f: P[T]): P[T] = node(text("(") *> unPos(f) <* text(")"))
 
-    // NB: recapture the position to include the parens, which don't get a node of their own.
-    def parens(f: P[T]): P[T] = node(text("(") *> unPos(f) <* text(")"))
+      def nullP  = node(text("null") ^ exprNull[T])
+      def trueP  = node(text("true") ^ (element(true) >>> exprBool[T]))
+      def falseP = node(text("false") ^ (element(false) >>> exprBool[T]))
 
-    def nullP  = node(text("null") ^ exprNull[T])
-    def trueP  = node(text("true") ^ (element(true) >>> exprBool[T]))
-    def falseP = node(text("false") ^ (element(false) >>> exprBool[T]))
+      def numP = {
+        val toInt = Iso.total[List[Char], Int](
+          _.mkString.toInt,
+          _.toString.toList)
+        node(digit.many1 ^ (toInt >>> exprNum[T]))
+      }
 
-    def numP = {
-      val toInt = Iso.total[List[Char], Int](
-        _.mkString.toInt,
-        _.toString.toList)
-      node(digit.many1 ^ (toInt >>> exprNum[T]))
+      def infixl(f0: P[T], ops: BinaryOperator*): P[T] = {
+        def opf(op: BinaryOperator) = optSpace *> (text(op.js) ^ element(op)) <* optSpace
+
+        chainlp(f0, ops.toList, opf, exprBinOpL)
+
+        // NB: this parses fine, but fails to print because fOps does not handle _all_
+        // of the operators. But that requirement is what makes it slow, I think.
+        //
+        // val fOps = ops.map(op => optSpace *> fOp(op) <* optSpace).reduce(_ <|> _)
+        // chainl1(f0, fOps, exprBinOp2 >>> fixUp)
+      }
+
+      def infix0 = nullP | trueP | falseP | numP |
+          parens(skipSpace *> infix11 <* skipSpace)
+      def infix1  = infixl(infix0, Mult, Div, Mod)
+      def infix2  = infixl(infix1, Add, Sub)
+      def infix3  = infixl(infix2, BitLShift, BitRShift)  // omitted: >>>
+      def infix4  = infixl(infix3, Lt, Lte, Gt, Gte, In)  // omitted: instanceof
+      def infix5  = infixl(infix4, Eq, Neq)  // omitted: ==, !=
+      def infix6  = infixl(infix5, BitAnd)
+      def infix7  = infixl(infix6, BitXor)
+      def infix8  = infixl(infix7, BitOr)
+      def infix9  = infixl(infix8, And)
+      def infix10 = infixl(infix9, Or)
+      // omitted: all assignment ops: "=", "*=", "/=", "%=", "+=", "-=", "<<=", ">>=", ">>>=", "&=", "^=", "|="
+      lazy val infix11: P[T] = infix10
+
+      def js = skipSpace *> infix11 <* skipSpace
+
+      js
     }
-
-    def infixl(f0: P[T], ops: BinaryOperator*): P[T] = {
-      def opf(op: BinaryOperator) = optSpace *> (text(op.js) ^ element(op)) <* optSpace
-
-      chainlp(f0, ops.toList, opf, exprBinOpL)
-
-      // NB: this parses fine, but fails to print because fOps does not handle _all_
-      // of the operators. But that requirement is what makes it slow, I think.
-      //
-      // val fOps = ops.map(op => optSpace *> fOp(op) <* optSpace).reduce(_ <|> _)
-      // chainl1(f0, fOps, exprBinOp2 >>> fixUp)
-    }
-
-    def infix0 = nullP | trueP | falseP | numP |
-        parens(skipSpace *> infix11 <* skipSpace)
-    def infix1  = infixl(infix0, Mult, Div, Mod)
-    def infix2  = infixl(infix1, Add, Sub)
-    def infix3  = infixl(infix2, BitLShift, BitRShift)  // omitted: >>>
-    def infix4  = infixl(infix3, Lt, Lte, Gt, Gte, In)  // omitted: instanceof
-    def infix5  = infixl(infix4, Eq, Neq)  // omitted: ==, !=
-    def infix6  = infixl(infix5, BitAnd)
-    def infix7  = infixl(infix6, BitXor)
-    def infix8  = infixl(infix7, BitOr)
-    def infix9  = infixl(infix8, And)
-    def infix10 = infixl(infix9, Or)
-    // omitted: all assignment ops: "=", "*=", "/=", "%=", "+=", "-=", "<<=", ">>=", ">>>=", "&=", "^=", "|="
-    lazy val infix11: P[T] = infix10
-
-    def js = skipSpace *> infix11 <* skipSpace
-
-    js
   }
-
-  val ExprParser = Syntax.parser(exprSyntax)
-  val ExprPrinter = Syntax.printer(exprSyntax)
 
   def toTree[A](v: Cofree[Expr, A]): Tree[String] = {
     def label(s: String, a: A) = s"$s $a"
@@ -247,11 +243,11 @@ object Test extends App {
 
   examples.foreach { src =>
     println("\"" + src + "\"")
-    ExprParser(src).fold(
+    exprSyntax.parse(src).fold(
       err => println(err),
       expr => {
         println(toTree(expr).drawTree)
-        val p = ExprPrinter(expr)
+        val p = exprSyntax.print(expr)
         println("--> " + p.map("\"" + _ + "\"").getOrElse(""))
       })
     println("")
@@ -271,13 +267,13 @@ class ExprSyntaxSpecs extends Specification {
 
   "ExprParser" should {
     "parse simple values" in {
-      ExprParser("null").map(show) must_== \/-(show(fix(Null(), "1-5")))
+      exprSyntax.parse("null").map(show) must_== \/-(show(fix(Null(), "1-5")))
 
-      ExprParser(" 123 ").map(show) must_== \/-(show(fix(Num(123), "2-5")))
+      exprSyntax.parse(" 123 ").map(show) must_== \/-(show(fix(Num(123), "2-5")))
     }
 
     "parse non-trivial expression" in {
-      ExprParser("(1 + 2)*3").map(show) must_== \/-(show(
+      exprSyntax.parse("(1 + 2)*3").map(show) must_== \/-(show(
         fix(
           BinOp(Mult,
             fix(
@@ -290,7 +286,7 @@ class ExprSyntaxSpecs extends Specification {
     }
 
     "fail with unexpected char" in {
-      ExprParser("_").fold[org.specs2.execute.Result](
+      exprSyntax.parse("_").fold[org.specs2.execute.Result](
         {
           case ParseFailure(pos, exp, found) =>
             pos.startColumn must_== 1
@@ -302,7 +298,7 @@ class ExprSyntaxSpecs extends Specification {
     }
 
     "fail with missing token" in {
-      ExprParser("(1 + 2").fold[org.specs2.execute.Result](
+      exprSyntax.parse("(1 + 2").fold[org.specs2.execute.Result](
         {
           case ParseFailure(pos, exp, found) =>
             pos.startColumn must_== 7
@@ -316,7 +312,7 @@ class ExprSyntaxSpecs extends Specification {
 
   "isomorphicity" should {
     def roundTrip(s: String): Option[String] =
-      ExprParser(s).toOption.flatMap(ExprPrinter).map(_.toString)
+      exprSyntax.parse(s).toOption.flatMap(exprSyntax.print).map(_.toString)
 
     "round-trip with superfluous parens" in {
       val src = "(1 + 2) + 3"

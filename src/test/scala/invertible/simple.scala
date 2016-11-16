@@ -60,58 +60,55 @@ object SimpleSyntax {
 
   // 6.4. Syntax descriptions
 
-  def expressionSyntax[F[_]](syntax: Syntax[F]): F[Expression] = {
-    import Syntax._
-    implicit val S = syntax
-    import S._
+  def expressionSyntax = new Syntax[Expression] {
+    def apply[P[_]: Transcriber]: P[Expression] = {
+      import Syntax._
 
-    val keywords = List("ifzero", "else")
+      val keywords = List("ifzero", "else")
 
-    val identifier =
-      (letter * (letter | digit).many) ^
-        (cons >>> chars >>> subset(s => !(keywords contains s)))
+      val identifier =
+        (letter * (letter | digit).many) ^
+          (cons >>> chars >>> subset(s => !(keywords contains s)))
 
-    def keyword(str: String) = (identifier |+| text(str)) ^ right.inverse
+      def keyword(str: String) = (identifier |+| text(str)) ^ right.inverse
 
-    val integer =
-      digit.many1 ^ chars >>> total[String, Int](_.toInt, _.toString)
+      val integer =
+        digit.many1 ^ chars >>> total[String, Int](_.toInt, _.toString)
 
-    val parens: F[Expression] => F[Expression] =
-      _.between(text("("), text(")"))
+      val parens: P[Expression] => P[Expression] =
+        _.between(text("("), text(")"))
 
-    val ops = text("*") ^ mulOp |
-              text("+") ^ addOp
+      val ops = text("*") ^ mulOp |
+                text("+") ^ addOp
 
-    val spacedOps = ops.between(optSpace, optSpace)
+      val spacedOps = ops.between(optSpace, optSpace)
 
-    val priority: Operator => Int = {
-      case MulOp => 1
-      case AddOp => 2
+      val priority: Operator => Int = {
+        case MulOp => 1
+        case AddOp => 2
+      }
+
+      def binOpPrio(p: Int) =
+        subset[(Expression, (Operator, Expression))] {
+          case (_, (op, _)) => priority(op) == p
+        } >>> binOp
+
+      def ifzero = keyword("ifzero") *> optSpace *> parens(expression) <*>
+                  optSpace *> parens(expression) <*>
+                  optSpace *> keyword("else") *> optSpace *> parens(expression)
+
+      def exp0 = integer ^ literal |
+                  identifier ^ variable |
+                  ifzero ^ ifZero |
+                  parens(skipSpace *> expression <* skipSpace)
+      def exp1 = chainl1(exp0, spacedOps, binOpPrio(1))
+      def exp2 = chainl1(exp1, spacedOps, binOpPrio(2))
+
+      lazy val expression: P[Expression] = exp2
+
+      expression
     }
-
-    def binOpPrio(p: Int) =
-      subset[(Expression, (Operator, Expression))] {
-        case (_, (op, _)) => priority(op) == p
-      } >>> binOp
-
-    def ifzero = keyword("ifzero") *> optSpace *> parens(expression) <*>
-                optSpace *> parens(expression) <*>
-                optSpace *> keyword("else") *> optSpace *> parens(expression)
-
-    def exp0 = integer ^ literal |
-                identifier ^ variable |
-                ifzero ^ ifZero |
-                parens(skipSpace *> expression <* skipSpace)
-    def exp1 = chainl1(exp0, spacedOps, binOpPrio(1))
-    def exp2 = chainl1(exp1, spacedOps, binOpPrio(2))
-
-    lazy val expression: F[Expression] = exp2
-
-    expression
   }
-
-  val ExpParser = Syntax.parser(expressionSyntax)
-  val ExpPrinter = Syntax.printer(expressionSyntax)
 }
 
 
@@ -123,15 +120,15 @@ class SimpleSyntaxSpec extends Specification {
 
   "Parser" should {
     "parse simple literal" in {
-      ExpParser("1") must_== \/-(Literal(1))
+      expressionSyntax.parse("1") must_== \/-(Literal(1))
     }
 
     "parse simple variable" in {
-      ExpParser("x") must_== \/-(Variable("x"))
+      expressionSyntax.parse("x") must_== \/-(Variable("x"))
     }
 
     "parse example from the paper" in {
-      ExpParser("ifzero (2+3*4) (5) else (6)") must_==
+      expressionSyntax.parse("ifzero (2+3*4) (5) else (6)") must_==
         \/-(
           IfZero(
             BinOp(Literal(2), AddOp, BinOp(Literal(3), MulOp, Literal(4))),
@@ -143,7 +140,7 @@ class SimpleSyntaxSpec extends Specification {
   "Printer" should {
     "print example from the paper" in {
       val expr = BinOp(BinOp(Literal(7), AddOp, Literal(8)), MulOp, Literal(9))
-      ExpPrinter(expr).map(_.toString) must beSome("(7 + 8) * 9")
+      expressionSyntax.print(expr).map(_.toString) must beSome("(7 + 8) * 9")
     }
   }
 }
