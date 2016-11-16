@@ -129,7 +129,7 @@ object Iso {
   val int = Iso[String, BigInt](s => \/.fromTryCatchNonFatal(BigInt(s)).toOption, _.toString.some)
   def left[A, B]  = Iso[A, A \/ B](a => Some(-\/(a)), _.swap.toOption)
   def right[A, B] = Iso[B, A \/ B](b => Some(\/-(b)), _.toOption)
-  def none[A] = Iso[Unit, Option[A]](_ => None, _.fold[Option[Unit]](Some(()))(_ => None))
+  def none[A] = Iso[Unit, Option[A]](_ => Some(None), _.fold[Option[Unit]](Some(()))(_ => None))
   def some[A] = Iso[A, Option[A]](a => Some(Some(a)), identity)
   def listMap[A,B] = Iso.total[List[(A,B)], ListMap[A,B]](ListMap(_: _*), _.toList)
   def vector[A] = Iso.total[List[A], Vector[A]](_.toVector, _.toList)
