@@ -289,7 +289,7 @@ class ExprSyntaxSpecs extends Specification {
           case ParseFailure(pos, exp, found) =>
             pos.startColumn must_== 1
             exp must contain("\"null\"", "\"true\"", "\"false\"", "digit", "\"(\"", "\" \"")
-            found must beSome("_")
+            found must beSome("'_'")
         },
         a => failure(a.toString)
       )

@@ -46,17 +46,21 @@ trait Transcriber[P[_]] extends IsoFunctor[P] with ProductFunctor[P] with Altern
 abstract class Syntax[A] {
   def apply[P[_]: Transcriber]: P[A]
 
-  def parse(s: String): ParseFailure \/ A = {
-    val p = apply(Syntax.parserTranscriber)
-    val r = new Source(s, 0)
-    val (err, ps) = p(r)
-    val as = ps.collect { case (a, rem) if rem.atEnd => a }
-    (err, as) match {
-      case (_, a :: Nil)            => \/-(a)
-      case (_, as) if as.length > 1 => sys.error("TODO: ambiguous parse")
-      case (Some(err), Nil)         => -\/(err)
-      case (None, Nil)              => sys.error("TODO: no parse and no error")
-    }
+  def parse(s: String): ParseFailure \/ A =
+    handleResult(apply(Syntax.parserTranscriber)(new Source(s, 0)))
+
+  def traceParse(s: String): (Vector[String], ParseFailure \/ A) =
+    apply(Syntax.tracingParserTranscriber)(new Source(s, 0)).map(handleResult).run
+
+  private def handleResult[A](rez: Syntax.PartialResult[A]): ParseFailure \/ A = rez match {
+    case (err, ps) =>
+      val as = ps.collect { case (a, rem) if rem.atEnd => a }
+      (err, as) match {
+        case (_, a :: Nil)            => \/-(a)
+        case (_, as) if as.length > 1 => sys.error("TODO: ambiguous parse")
+        case (Some(err), Nil)         => -\/(err)
+        case (None, Nil)              => sys.error("TODO: no parse and no error")
+      }
   }
 
   def print(a: A): Option[String] =
@@ -74,7 +78,7 @@ object Syntax {
   def text[A, P[_]](s: String)(implicit P: Transcriber[P]): P[Unit] =
     if (s == "") pure(())
     else
-      (P.tokenStr(s.length) ^ element(s).inverse).label("\"" + s + "\"")
+      (P.tokenStr(s.length) ^ element(s).inverse).label(repr(s, '"'))
 
   def digit[P[_]](implicit P: Transcriber[P]): P[Char] =
     (P.token ^ subset(_.isDigit)).label("digit")
@@ -171,11 +175,23 @@ object Syntax {
       l *> p <* r
   }
 
+  def repr(str: String, quote: Char): String = {
+    def pad(c: Char, length: Int, s: String) = List.fill(length - s.length)(c).mkString + s
+      quote + str.toList.map {
+        case '\n'        => "\\n"
+        case '\t'        => "\\t"
+        case `quote`     => "\\" + quote
+        case c if c < 32 => s"\\u${pad('0', 4, c.toInt.toHexString)}"
+        case c           => c.toString
+      }.mkString + quote
+  }
+
   /** A parser is simply a pure function from an input sequence to a tuple of:
    * - an optional failure, which represents the most advanced failure yet seen, and
    * - a list of possible results, each paired with the remaining input.
    */
-  type PartialParser[A] = Source => (Option[ParseFailure], List[(A, Source)])
+  type PartialResult[A] = (Option[ParseFailure], List[(A, Source)])
+  type PartialParser[A] = Source => PartialResult[A]
 
   val parserTranscriber = new Transcriber[PartialParser] {
     def map[A, B](p: PartialParser[A], iso: Iso[A, B]) = { r =>
@@ -228,6 +244,79 @@ object Syntax {
       val (_, ps) = p(r)
       (if (ps.isEmpty) Some(ParseFailure(r, expected)) else None,
         ps)
+    }
+  }
+
+  /** Adds a log which records every attempted parser application. */
+  // TODO: capture the input position with each entry
+  type Trace[A] = Writer[Vector[String], A]
+  type TracingParser[A] = Source => Trace[PartialResult[A]]
+
+  val tracingParserTranscriber = new Transcriber[TracingParser] {
+    private def emit[A](msg: String, a: A, rem: Source): Trace[PartialResult[A]] =
+      Writer(Vector(msg), (None, List((a, rem))))
+    private def fail[A](msg: String, failure: ParseFailure): Trace[PartialResult[A]] =
+      Writer(Vector(msg), (Some(failure), Nil))
+
+    def map[A, B](p: TracingParser[A], iso: Iso[A, B]) = { r =>
+      // TODO: log the value(s) being produced?
+      p(r).map { case (e, ps1) =>
+        (e,
+          ps1.flatMap { case (a, r1) =>
+            iso.app(a).fold[List[(B, Source)]](Nil)((_, r1) :: Nil)
+          })
+      }
+    }
+
+    def and[A, B](fa: TracingParser[A], fb: => TracingParser[B]) = { r =>
+      fa(r).flatMap { case (e1, ps1) =>
+        ps1.traverse { case (a, r1) =>
+          fb(r1).map { case (e, ps2) =>
+            (e, ps2.map { case (b, r2) => ((a, b), r2) })
+          }
+        }.map { pairs =>
+          val (e2s, ps2s) = pairs.unzip
+          ((None :: e1 :: e2s).reduce(_ |+| _),
+            ps2s.flatten)
+        }
+      }
+    }
+
+    def or[A](f1: TracingParser[A], f2: => TracingParser[A]) = { r =>
+      for {
+        t1 <- f1(r)
+        t2 <- f2(r)
+      } yield (t1._1 |+| t2._1, t1._2 ++ t2._2)
+    }
+
+    def pure[A](a: A) =
+      r => emit(s"pure: $a", a, r)
+
+    def token: TracingParser[Char] = r =>
+      r.first.cata(
+        c => emit(s"""token: read ${repr(c.toString, '"')}""", c, r.rest),
+        fail("token: no more input", ParseFailure(r, "any char")))
+
+    def tokenStr(length: Int): TracingParser[String] = { r =>
+      r.prefix(length).cata(
+        s => emit(s"""tokenStr: read ${repr(s, '"')}""", s, r.drop(length)),
+        fail(s"tokenStr: not enough remaining input to read $length chars", ParseFailure(r, "any " + length + " chars")))
+    }
+
+    def pos[A](p: TracingParser[A]): TracingParser[(A, Position)] = { r =>
+      val before = r.pos
+      p(r).map(_.map(_.map {
+          case (a, r1) => ((a, before |+| r1.pos), r1)
+        }))
+    }
+
+    def label[A](p: TracingParser[A], expected: => String) = { r =>
+      p(r).flatMap { case (e, ps) =>
+        if (ps.empty)
+          Writer(Vector(s"  label: $expected (was: $e)"), (Some(ParseFailure(r, expected)), ps))
+        else
+          (None: Option[ParseFailure], ps).point[Trace]
+      }
     }
   }
 
