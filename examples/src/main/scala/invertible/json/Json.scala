@@ -95,7 +95,7 @@ object Json {
           // NB: this is all pretty dodgy; the crux is that we need to pull out
           // the portions of the number as characters that will match up with the
           // syntax. That's the essence of the guarantee of isomorphism. But it’s
-          // awfully painful to make that happen with complex typoes like
+          // awfully painful to make that happen with complex types like
           // BigDecimal. Moreover if something’s wrong here the printer will just
           // fail without explanation.
           case (dec, exp) =>
