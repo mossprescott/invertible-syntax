@@ -19,6 +19,9 @@ package invertible.json
 import org.specs2.mutable.Specification
 import scala.collection.immutable.ListMap
 
+import scalaz._, Scalaz._
+import scalaz.concurrent.Task
+
 class JsonSpec extends Specification with org.specs2.scalaz.ScalazMatchers {
   def trace(str: String) = {
     val (log, rez) = Json.syntax.traceParse(str)
@@ -71,5 +74,75 @@ class JsonSpec extends Specification with org.specs2.scalaz.ScalazMatchers {
       Json.syntax.print(Fix[Json](Num(BigDecimal("-123.456"), Some(BigInt("789"))))) must beSome(
         "-123.456e789")
     }
+  }
+
+  "test suite" should {
+    val testDirUrl = "https://api.github.com/repos/nst/JSONTestSuite/contents/test_parsing"
+    val downloadUrl = "https://raw.githubusercontent.com/nst/JSONTestSuite/master/test_parsing/"
+
+    def fromUrl(url: String): Task[Option[String]] = Task.delay {
+      // http://stackoverflow.com/a/13632114/101287
+      Option(new java.util.Scanner(new java.net.URL(url).openStream(), "UTF-8").useDelimiter("\\A"))
+        .flatMap(s => if (s.hasNext()) Option(s.next()) else Some(""))
+    }
+
+    val tests = for {
+      index <- fromUrl(testDirUrl).flatMap(_.cata(
+        Task.now,
+        Task.fail(new RuntimeException("index not loaded"))))
+      // _=println(index.substring(0, 100))
+      files <- Json.syntax.parse(index).fold(
+        err => Task.fail(new RuntimeException(err.toString)),
+        Task.now)
+      // _=println(files)
+      names = (files match {
+        case Fix(Arr(children)) =>
+          children map {
+            case Fix(Obj(m)) =>
+              m.get("name") match {
+                case Some(Fix(Str(n))) =>
+                  Some(n)
+                case _ =>
+                  None
+              }
+            case _ =>
+              None
+          }
+        case _ =>
+          sys.error("no files found")
+      }).flatten
+      // _=println(names)
+      tests = names.take(1000) map { n =>
+        val url = downloadUrl + n.replace("#", "%23")
+        for {
+          // _ <- Task.delay { println(url) }
+          str <- fromUrl(url).flatMap(_.cata(
+            Task.now,
+            Task.fail(new RuntimeException("test not loaded: " + n))))
+        } yield {
+          if (n == "n_structure_100000_opening_arrays.json" ||
+              n == "i_structure_500_nested_arrays.json" ||
+              n == "n_structure_open_array_object.json")
+            n in skipped("overflows stack")
+          else
+            n in {
+              val parsed = Json.syntax.parse(str)
+              // println(str + "; " + parsed)
+              if (n startsWith "y_")
+                parsed must beRightDisjunction
+              else if (n startsWith "n_")
+                parsed must beLeftDisjunction
+              else if (n startsWith "i_")
+                ok
+              else ok
+            }
+        }
+      }
+    } yield tests
+
+    tests.unsafePerformSync.map(_.unsafePerformSync)
+
+    // what can I say? specs2 is mysterious
+    "dummy" >> ok
   }
 }
