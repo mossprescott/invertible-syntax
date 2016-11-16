@@ -57,8 +57,8 @@ object Json {
 
       val hexDigitP =
         (char ^ subset(c => c >= '0' && c <= '9') ^ total[Char, Int](_ - '0', x => (x + '0').toChar) |
-          char ^ subset(c => c >= 'A' && c <= 'F') ^ total[Char, Int](_ - 'A', x => (x + 'A').toChar) |
-          char ^ subset(c => c >= 'a' && c <= 'f') ^ total[Char, Int](_ - 'a', x => (x + 'a').toChar))
+          char ^ subset(c => c >= 'A' && c <= 'F') ^ total[Char, Int](_ - 'A' + 10, x => (x - 10 + 'A').toChar) |
+          char ^ subset(c => c >= 'a' && c <= 'f') ^ total[Char, Int](_ - 'a' + 10, x => (x - 10 + 'a').toChar))
             .label("hex digit (0-9, A-Z)")
       val escapedP =
         text("\"") ^ element('"') |

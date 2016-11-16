@@ -31,22 +31,22 @@ class JsonSpec extends Specification with org.specs2.scalaz.ScalazMatchers {
 
   "JsonSyntax" should {
     "parse simple string" in {
-      Json.syntax.parse(""" "abc" """) must beRightDisjunction(
+      Json.syntax.parse(" \"abc\" ") must beRightDisjunction(
         Fix[Json](Str("abc")))
     }
 
     "parse Unicode escape" in {
-      Json.syntax.parse(""" "\u03BA" """) must beRightDisjunction(
+      Json.syntax.parse(" \"\\u03BA\" ") must beRightDisjunction(
         Fix[Json](Str("κ")))
     }
 
     "parse simple num" in {
-      Json.syntax.parse("""-123.456e789""") must beRightDisjunction(
+      Json.syntax.parse("-123.456e789") must beRightDisjunction(
         Fix[Json](Num(BigDecimal("-123.456"), Some(BigInt("789")))))
     }
 
     "parse nested arrays" in {
-      Json.syntax.parse(""" [[]] """) must beRightDisjunction(
+      Json.syntax.parse(" [[]] ") must beRightDisjunction(
         Fix[Json](Arr(Vector(
           Fix(Arr(Vector()))))))
     }
