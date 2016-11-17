@@ -149,7 +149,9 @@ class JsonSpec extends Specification with org.specs2.scalaz.ScalazMatchers {
       }
     } yield tests
 
-    tests.unsafePerformSync
+    // The github API is giving 403s, but only in Travis.
+    if (sys.env.get("TRAVIS").isEmpty)
+      tests.unsafePerformSync
 
     // what can I say? specs2 is mysterious
     "dummy" >> ok
