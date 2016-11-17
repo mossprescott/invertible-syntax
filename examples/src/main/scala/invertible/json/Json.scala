@@ -47,10 +47,8 @@ object Num {
     },
     {
       case Num(value, scale, exp) =>
-        def lPad(c: Char, length: Int, str: String) =
-          List.fill(length - str.length)(c).mkString + str
         val vSign = if (value.signum == 0) 1 else value.signum
-        val vStr = lPad('0', scale+1, value.abs.toString)
+        val vStr = Syntax.lPad('0', scale+1, value.abs.toString)
         val pt = vStr.length - scale
         val ip = vStr.substring(0, pt)
         val fp = if (scale > 0) Some(vStr.substring(pt)) else None

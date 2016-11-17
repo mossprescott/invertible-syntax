@@ -175,15 +175,16 @@ object Syntax {
       l *> p <* r
   }
 
+  def lPad(c: Char, length: Int, s: String) = List.fill(length - s.length)(c).mkString + s
+
   def repr(str: String, quote: Char): String = {
-    def pad(c: Char, length: Int, s: String) = List.fill(length - s.length)(c).mkString + s
-      quote + str.toList.map {
-        case '\n'        => "\\n"
-        case '\t'        => "\\t"
-        case `quote`     => "\\" + quote
-        case c if c < 32 => s"\\u${pad('0', 4, c.toInt.toHexString)}"
-        case c           => c.toString
-      }.mkString + quote
+    quote + str.toList.map {
+      case '\n'        => "\\n"
+      case '\t'        => "\\t"
+      case `quote`     => "\\" + quote
+      case c if c < 32 => s"\\u${lPad('0', 4, c.toInt.toHexString)}"
+      case c           => c.toString
+    }.mkString + quote
   }
 
   /** A parser is simply a pure function from an input sequence to a tuple of:
