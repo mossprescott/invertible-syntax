@@ -41,8 +41,10 @@ class JsonSpec extends Specification with org.specs2.scalaz.ScalazMatchers {
     }
 
     "parse simple num" in {
-      Json.syntax.parse("-123.456e789") must beRightDisjunction(
-        Fix[Json](Num(BigDecimal("-123.456"), Some(BigInt("789")))))
+      Json.syntax.parse("-123.456e789") match {
+        case \/-(Fix(x @ Num(_, _, _))) => x.toBigDecimal must_== BigDecimal("-123.456e789")
+        case _ => sys.error("failed")
+      }
     }
 
     "parse nested arrays" in {
@@ -71,7 +73,7 @@ class JsonSpec extends Specification with org.specs2.scalaz.ScalazMatchers {
     }
 
     "print num" in {
-      Json.syntax.print(Fix[Json](Num(BigDecimal("-123.456"), Some(BigInt("789"))))) must beSome(
+      Json.syntax.print(Fix[Json](Num(BigInt("-123456"), 3, Some(BigInt("789"))))) must beSome(
         "-123.456e789")
     }
   }
@@ -117,8 +119,6 @@ class JsonSpec extends Specification with org.specs2.scalaz.ScalazMatchers {
             n ≟ "i_structure_500_nested_arrays.json" ||
             n ≟ "n_structure_open_array_object.json")
           n in skipped("overflows stack")
-        else if (n ≟ "y_number_double_close_to_zero.json")
-          n in skipped("parsed but not printed properly")
         else
           n in {
             val url = downloadUrl + n.replace("#", "%23")
