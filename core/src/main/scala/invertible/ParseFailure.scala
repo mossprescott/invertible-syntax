@@ -16,15 +16,17 @@
 
 package invertible
 
+import Syntax.repr
+
 import scalaz._
 
 final case class ParseFailure(pos: Position, expected: List[String], found: Option[String]) {
-  override def toString = "expected: " + expected.mkString(" or ") + found.fold("")("; found: '" + _ + "'") + "\n" + pos.longString
+  override def toString = "expected: " + expected.mkString(" or ") + found.fold("")("; found: " + _) + "\n" + pos.longString
 }
 
 object ParseFailure {
   def apply(r: Source, expected: String): ParseFailure =
-    ParseFailure(r.pos, List(expected), r.first.map(_.toString))
+    ParseFailure(r.pos, List(expected), r.first.map(c => repr(c.toString, '\'')))
 
   implicit val semigroup = new Semigroup[Option[ParseFailure]] {
     def append(of1: Option[ParseFailure], of2: => Option[ParseFailure]) = (of1, of2) match {
