@@ -42,8 +42,8 @@ Note: in a simple syntax like this, printing never fails because the syntax can 
 
 ### Examples
 
-A port of the simple parser presented in [Tillmann Rendel and Klaus Ostermann. Invertible syntax descriptions: Unifying parsing and pretty printing. Haskell symposium, 2010](http://www.informatik.uni-marburg.de/~rendel/unparse/) is in [simple.scala](src/test/scala/invertible/simple.scala).
+A port of the simple parser presented in [Tillmann Rendel and Klaus Ostermann. Invertible syntax descriptions: Unifying parsing and pretty printing. Haskell symposium, 2010](http://www.informatik.uni-marburg.de/~rendel/unparse/) is in [simple.scala](core/src/test/scala/invertible/simple.scala).
 
-A more complicated example parser, handling a richer language and providing source locations, is in [example.scala](src/test/scala/invertible/example.scala).
+A more complicated example parser, handling a richer language and providing source locations, is in [example.scala](core/src/test/scala/invertible/example.scala).
 
 The [`examples` project](examples) contains a complete, verified JSON parser/printer.
